@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkmate Security Scan</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo" aria-hidden="true">♞</span> <span id="event-name">Checkmate</span></div>
+    <div class="tag">Powered by Checkmarx One · Fusion</div>
+  </header>
+
+  <main id="app" class="container" aria-live="polite"></main>
+
+  <template id="register-tpl">
+    <section class="hero">
+      <h1>See what your scanner is missing.</h1>
+      <p>Give us a GitHub repository. Checkmarx One scans it with <strong>Fusion</strong> switched on, and in a few minutes you'll see the issues rule-based tools didn't find — explained in plain language.</p>
+    </section>
+
+    <form id="register" class="card form" novalidate>
+      <fieldset>
+        <legend>Your details</legend>
+        <div class="grid two">
+          <label>Full name<input name="name" autocomplete="name" required></label>
+          <label>Work email<input name="email" type="email" autocomplete="email" required></label>
+        </div>
+        <label><span>Company <span class="muted">(optional)</span></span><input name="company" autocomplete="organization"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Technical contact</legend>
+        <p class="hint">The engineer who owns this repository. Can be you.</p>
+        <button type="button" class="link" id="same-as-me">Same as me</button>
+        <div class="grid two">
+          <label>Name<input name="technicalName" required></label>
+          <label>Email<input name="technicalEmail" type="email" required></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Operations points of contact</legend>
+        <p class="hint">At least two colleagues you'd like to review the results with. You can invite more later.</p>
+        <div id="contacts"></div>
+        <button type="button" class="secondary small" id="add-contact">+ Add another contact</button>
+        <p class="error" data-error="contacts"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Repository</legend>
+        <div class="grid two wide-first">
+          <label>GitHub repository URL<input name="githubUrl" type="url" placeholder="https://github.com/org/repo" required></label>
+          <label><span>Branch <span class="muted">(optional)</span></span><input name="branch" placeholder="main"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="consent"> I'm authorised to have this repository scanned by Checkmarx.</label>
+        <p class="error" data-error="consent"></p>
+        <label class="check"><input type="checkbox" name="inviteNow" checked> Email my points of contact a link to the results now.</label>
+      </fieldset>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="submit">Start my scan</button>
+        <p class="error" id="form-error" role="alert"></p>
+      </div>
+    </form>
+  </template>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
