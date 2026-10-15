@@ -3,7 +3,14 @@ import { config } from './config.js';
 import { templateExplanation } from './knowledge.js';
 import { SEVERITY_ORDER } from './fusion.js';
 
-const client = config.anthropic.enabled ? new Anthropic() : null;
+// Created on demand so a key saved in the admin panel takes effect without a restart.
+let cached = { key: null, client: null };
+function getClient() {
+  if (!config.anthropic.enabled) return null;
+  const key = config.anthropic.apiKey || '';
+  if (cached.key !== key) cached = { key, client: key ? new Anthropic({ apiKey: key }) : new Anthropic() };
+  return cached.client;
+}
 
 const SYSTEM = `You explain application-security scan results from Checkmarx One to two audiences at once:
 an executive who needs to understand business risk in one or two sentences, and an engineer who needs to know what to change.
@@ -71,7 +78,7 @@ const compact = (f) => ({
   description: f.description?.slice(0, 1200) || undefined,
 });
 
-async function askJson(prompt, schema, effort = 'medium') {
+async function askJson(client, prompt, schema, effort = 'medium') {
   const stream = client.beta.messages.stream({
     model: config.anthropic.model,
     max_tokens: 32000,
@@ -92,6 +99,7 @@ async function askJson(prompt, schema, effort = 'medium') {
 export async function explainFindings(fusionOnly, others, log = console) {
   const all = [...fusionOnly, ...others];
   for (const f of all) f.explanation = templateExplanation(f);
+  const client = getClient();
   if (!client || !all.length) return;
 
   // Fusion-only findings first, then the most severe of the rest.
@@ -109,6 +117,7 @@ export async function explainFindings(fusionOnly, others, log = console) {
     batches.map(async (batch) => {
       try {
         const out = await askJson(
+          client,
           `Explain each of these findings. Return one explanation per finding, using the same id.\n\n<findings>\n${JSON.stringify(batch.map(compact), null, 2)}\n</findings>`,
           FINDINGS_SCHEMA,
         );
@@ -152,6 +161,7 @@ export function templateSummary(fusionOnly, others, summary) {
 
 export async function executiveSummary(fusionOnly, others, summary, repoName, log = console) {
   const fallback = templateSummary(fusionOnly, others, summary);
+  const client = getClient();
   if (!client || !summary.total) return fallback;
   try {
     const top = [...fusionOnly.slice(0, 15), ...others.slice(0, 25)].map((f) => ({
@@ -160,6 +170,7 @@ export async function executiveSummary(fusionOnly, others, summary, repoName, lo
       plainTitle: f.explanation?.plainTitle,
     }));
     const out = await askJson(
+      client,
       `Write an executive summary of this Checkmarx One scan of the repository "${repoName}".\n\n<summary>\n${JSON.stringify(summary, null, 2)}\n</summary>\n\n<top_findings>\n${JSON.stringify(top, null, 2)}\n</top_findings>`,
       SUMMARY_SCHEMA,
     );

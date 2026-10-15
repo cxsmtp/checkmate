@@ -1,0 +1,53 @@
+# Run with one command — Docker or Podman:
+#   docker compose up -d          (or: podman compose up -d)
+# The first start prints the admin password:
+#   docker compose logs checkmate
+services:
+  checkmate:
+    image: ghcr.io/cxsmtp/checkmate:latest
+    container_name: checkmate
+    restart: unless-stopped
+    # Reachable from this machine only by default. For the event, set BIND_ADDRESS=0.0.0.0
+    # (ideally behind a reverse proxy that serves HTTPS).
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    volumes:
+      - type: volume
+        source: checkmate-data
+        target: /data
+    healthcheck:
+      test: ["CMD", "node", "scripts/healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    # Hardened: nothing in the image can change at run time (only /data and a scratch /tmp
+    # are writable), no Linux capabilities, no privilege escalation.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    stop_grace_period: 15s
+    environment:
+      # Everything below can also be set from the admin panel (/admin → Settings).
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}           # address visitors use, put in invitation emails
+      CX_MODE: ${CX_MODE:-demo}                       # demo | live
+      CX_TENANT: ${CX_TENANT:-}
+      CX_API_KEY: ${CX_API_KEY:-}
+      CX_BASE_URL: ${CX_BASE_URL:-https://ast.checkmarx.net}
+      CX_IAM_URL: ${CX_IAM_URL:-https://iam.checkmarx.net}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}             # optional; otherwise generated and printed once
+      # Updates: new releases from the repository's main branch install by themselves when on.
+      AUTO_UPDATE: ${AUTO_UPDATE:-on}
+      UPDATE_CHECK_MINUTES: ${UPDATE_CHECK_MINUTES:-5}
+      # The repository is private: a token that can read its packages and attestations.
+      UPDATE_REGISTRY_TOKEN: ${UPDATE_REGISTRY_TOKEN:-}
+      GITHUB_READ_TOKEN: ${GITHUB_READ_TOKEN:-}
+      TRUST_PROXY: ${TRUST_PROXY:-loopback}           # set to your reverse proxy's address when behind one
+      TZ: ${TZ:-UTC}
+volumes:
+  checkmate-data:

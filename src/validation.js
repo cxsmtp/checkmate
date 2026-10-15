@@ -13,7 +13,7 @@ export function parseGithubUrl(v) {
 const clean = (v, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Validates the registration form. Returns { value } or { errors }. */
-export function validateRegistration(body = {}) {
+export function validateRegistration(body = {}, { getSample = () => null } = {}) {
   const errors = {};
   const customer = { name: clean(body.name), email: clean(body.email, 254).toLowerCase(), company: clean(body.company) };
   const technical = { name: clean(body.technicalName), email: clean(body.technicalEmail, 254).toLowerCase() };
@@ -21,8 +21,11 @@ export function validateRegistration(body = {}) {
   const pocs = contacts
     .map((c) => ({ name: clean(c?.name), email: clean(c?.email, 254).toLowerCase(), role: clean(c?.role) || 'Operations' }))
     .filter((c) => c.name || c.email);
-  const repo = parseGithubUrl(body.githubUrl);
-  const branch = clean(body.branch, 200);
+  // A visitor without a repository of their own picks one of the samples instead.
+  const sampleId = clean(body.sampleId, 36);
+  const sample = sampleId ? getSample(sampleId) : null;
+  const repo = sample ? parseGithubUrl(sample.url) : parseGithubUrl(body.githubUrl);
+  const branch = sample ? sample.branch : clean(body.branch, 200);
 
   if (!customer.name) errors.name = 'Please enter your name.';
   if (!isEmail(customer.email)) errors.email = 'Please enter a valid email address.';
@@ -34,10 +37,12 @@ export function validateRegistration(body = {}) {
     if (!isEmail(c.email)) errors[`contacts.${i}.email`] = 'Valid email is required.';
   });
   if (pocs.length > 10) errors.contacts = 'Up to 10 contacts can be added here; invite more later.';
-  if (!repo) errors.githubUrl = 'Please enter a GitHub repository URL like https://github.com/org/repo.';
+  if (sampleId && !sample?.enabled) errors.sampleId = 'That sample repository is no longer available. Please pick another.';
+  else if (!repo) errors.githubUrl = 'Please enter a GitHub repository URL like https://github.com/org/repo, or pick a sample repository.';
   if (branch && !/^[\w./-]+$/.test(branch)) errors.branch = 'Branch name contains invalid characters.';
-  if (body.consent !== true) errors.consent = 'Please confirm you are authorised to have this repository scanned.';
+  // Consent is about the visitor's own code; the samples are ours.
+  if (!sample && body.consent !== true) errors.consent = 'Please confirm you are authorised to have this repository scanned.';
 
   if (Object.keys(errors).length) return { errors };
-  return { value: { customer, technical, pocs, repo, branch } };
+  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null } };
 }

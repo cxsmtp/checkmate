@@ -67,7 +67,15 @@ export function normalize(raw) {
     description: str(raw.description || d.description || ''),
     expected: str(d.expectedValue || ''),
     actual: str(d.actualValue || ''),
-    firstFoundAt: str(raw.firstFoundAt || ''),
+    firstFoundAt: str(raw.firstFoundAt || raw.foundAt || ''),
+    // The data flow from source to sink, as Checkmarx One's attack vector shows it.
+    nodes: (Array.isArray(d.nodes) ? d.nodes : []).slice(0, 25).map((n) => ({
+      file: str(n.fileName),
+      line: Number(n.line) || null,
+      column: Number(n.column) || null,
+      name: str(n.name || n.fullName || ''),
+      method: str(n.method || ''),
+    })),
   };
 }
 

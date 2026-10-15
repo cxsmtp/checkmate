@@ -5,6 +5,7 @@ import { demoResults } from './demo.js';
 import { classify } from './fusion.js';
 import { explainFindings, executiveSummary } from './explain.js';
 import { send, scanCompleteEmail } from './mailer.js';
+import * as samples from './samples.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const running = new Set();
@@ -89,6 +90,8 @@ export async function runScan(id, log = console) {
     const executive = await executiveSummary(fusionOnly, others, summary, `${session.repo.owner}/${session.repo.repo}`, log);
 
     const done = setStage(id, 'complete', { fusionOnly, others, summary, executive, completedAt: new Date().toISOString() });
+    if (done.sampleId) samples.recordScan(done.sampleId, done.id, done.completedAt);
+    if (done.kind === 'sample-refresh') return; // started from the admin panel: nobody to email
 
     const recipients = [done.customer.email, done.technical.email].filter((v, i, a) => a.indexOf(v) === i);
     for (const to of recipients) {
@@ -111,4 +114,16 @@ export function resumeInFlight(log = console) {
       else setStage(s.id, 'error', { error: 'Server restarted before the scan was started. Please register again.' });
     }
   }
+}
+
+/**
+ * A visitor picked a sample whose recent scan can be reused: they get those
+ * results at once (the page says when that scan ran).
+ */
+export function reuseSampleScan(id, sourceId) {
+  const source = store.load(sourceId);
+  if (source?.stage !== 'complete') return false;
+  const { fusionOnly, others, summary, executive, cx: scan, completedAt } = source;
+  setStage(id, 'complete', { fusionOnly, others, summary, executive, cx: scan, completedAt, reusedFrom: { sessionId: sourceId, completedAt } });
+  return true;
 }

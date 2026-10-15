@@ -14,6 +14,16 @@ function h(tag, attrs = {}, ...children) {
 }
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
+const SCANNERS = [
+  ['fusion', 'Fusion'],
+  ['sast', 'SAST'],
+  ['sca', 'SCA'],
+  ['kics', 'IaC Security'],
+  ['secrets', 'Secret Detection'],
+  ['apisec', 'API Security'],
+  ['containers', 'Containers'],
+];
+const scannerLabel = (e) => SCANNERS.find(([k]) => k === e)?.[1] ?? e.toUpperCase();
 const STAGES = [
   ['queued', 'Registered'],
   ['creating-project', 'Connecting to Checkmarx One'],
@@ -23,20 +33,28 @@ const STAGES = [
   ['explaining', 'Writing plain-language explanations'],
   ['complete', 'Results ready'],
 ];
+const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
 
-fetch('/api/config').then((r) => r.json()).then((c) => {
-  document.getElementById('event-name').textContent = c.eventName;
-  document.title = `${c.eventName} Security Scan`;
-}).catch(() => {});
+let siteConfig = { eventName: 'Checkmate', samples: [] };
+const configReady = fetch('/api/config')
+  .then((r) => r.json())
+  .then((c) => {
+    siteConfig = c;
+    document.getElementById('event-name').textContent = c.eventName;
+    document.title = `${c.eventName} Security Scan`;
+    const v = document.getElementById('version');
+    if (v) v.textContent = `v${c.version}`;
+  })
+  .catch(() => {});
 
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 function contactRow(i, removable) {
   return h('div', { class: 'contact-row grid three' },
-    h('label', {}, `Contact ${i + 1} name`, h('input', { name: `contacts.${i}.name`, required: true })),
-    h('label', {}, 'Email', h('input', { name: `contacts.${i}.email`, type: 'email', required: true })),
-    h('label', {}, 'Role', h('input', { name: `contacts.${i}.role`, placeholder: 'e.g. DevOps lead' })),
+    h('label', {}, h('span', {}, `Contact ${i + 1} name`), h('input', { name: `contacts.${i}.name`, required: true })),
+    h('label', {}, h('span', {}, 'Email'), h('input', { name: `contacts.${i}.email`, type: 'email', required: true })),
+    h('label', {}, h('span', {}, 'Role'), h('input', { name: `contacts.${i}.role`, placeholder: 'e.g. DevOps lead' })),
     removable ? h('button', { type: 'button', class: 'link remove', 'aria-label': 'Remove contact', onclick: (e) => { e.target.closest('.contact-row').remove(); renumber(); } }, 'Remove') : null,
   );
 }
@@ -44,15 +62,40 @@ function contactRow(i, removable) {
 function renumber() {
   document.querySelectorAll('#contacts .contact-row').forEach((row, i) => {
     row.querySelectorAll('input').forEach((input) => { input.name = input.name.replace(/contacts\.\d+/, `contacts.${i}`); });
-    row.querySelector('label').firstChild.textContent = `Contact ${i + 1} name`;
+    row.querySelector('label span').textContent = `Contact ${i + 1} name`;
   });
 }
 
-function renderRegister() {
+function samplePicker(form) {
+  const wrap = document.getElementById('samples');
+  if (!siteConfig.samples?.length) { wrap.hidden = true; return; }
+  const own = document.getElementById('own-repo');
+  const select = (id) => {
+    form.sampleId.value = id ?? '';
+    wrap.querySelectorAll('.sample').forEach((el) => el.setAttribute('aria-pressed', String(el.dataset.id === id)));
+    own.hidden = Boolean(id);
+    form.githubUrl.required = !id;
+  };
+  wrap.append(
+    h('p', { class: 'samples-lead' }, h('strong', {}, 'No repository handy? '), 'See Fusion in action on one of ours — pick one and we\'ll scan it for you.'),
+    h('div', { class: 'sample-grid' }, siteConfig.samples.map((s) =>
+      h('button', { type: 'button', class: 'sample', 'data-id': s.id, 'aria-pressed': 'false', onclick: (e) => select(e.currentTarget.getAttribute('aria-pressed') === 'true' ? null : s.id) },
+        h('span', { class: 'sample-name' }, s.name),
+        h('span', { class: 'sample-lang' }, s.language),
+        h('span', { class: 'sample-desc' }, s.description),
+        h('span', { class: 'sample-url' }, s.url.replace('https://github.com/', '')),
+        s.hasResults ? h('span', { class: 'sample-ready' }, '⚡ Instant results') : null))),
+    h('button', { type: 'button', class: 'link', onclick: () => select(null) }, 'I\'ll use my own repository instead'),
+  );
+}
+
+async function renderRegister() {
+  await configReady;
   app.replaceChildren(document.getElementById('register-tpl').content.cloneNode(true));
   const form = document.getElementById('register');
   const contacts = document.getElementById('contacts');
   contacts.append(contactRow(0, false), contactRow(1, false));
+  samplePicker(form);
 
   document.getElementById('add-contact').onclick = () => {
     const n = contacts.children.length;
@@ -66,7 +109,8 @@ function renderRegister() {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     form.querySelectorAll('.invalid').forEach((el) => el.classList.remove('invalid'));
-    form.querySelectorAll('[data-error], .field-error').forEach((el) => { if (el.classList.contains('field-error')) el.remove(); else el.textContent = ''; });
+    form.querySelectorAll('.field-error').forEach((el) => el.remove());
+    form.querySelectorAll('[data-error]').forEach((el) => { el.textContent = ''; });
     document.getElementById('form-error').textContent = '';
 
     const fd = new FormData(form);
@@ -75,6 +119,7 @@ function renderRegister() {
       name: fd.get('name'), email: fd.get('email'), company: fd.get('company'),
       technicalName: fd.get('technicalName'), technicalEmail: fd.get('technicalEmail'),
       contacts: rows.map((_, i) => ({ name: fd.get(`contacts.${i}.name`), email: fd.get(`contacts.${i}.email`), role: fd.get(`contacts.${i}.role`) })),
+      sampleId: fd.get('sampleId') || undefined,
       githubUrl: fd.get('githubUrl'), branch: fd.get('branch'),
       consent: form.consent.checked, inviteNow: form.inviteNow.checked,
     };
@@ -104,7 +149,7 @@ function showErrors(form, errors) {
     const slot = form.querySelector(`[data-error="${field}"]`);
     if (slot) { slot.textContent = msg; continue; }
     const input = form.elements[field];
-    if (!input) continue;
+    if (!input || input.type === 'hidden') continue;
     input.classList.add('invalid');
     input.after(h('span', { class: 'field-error' }, msg));
     first ??= input;
@@ -113,10 +158,10 @@ function showErrors(form, errors) {
 }
 
 // ---------------------------------------------------------------------------
-// Results
+// Results — laid out like the Checkmarx One results view
 // ---------------------------------------------------------------------------
 let pollTimer = null;
-const ui = { filterEngine: 'all', filterSeverity: 'all', openIds: new Set() };
+const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, execOpen: true };
 
 async function loadSession(id, key) {
   const res = await fetch(`/api/sessions/${encodeURIComponent(id)}?k=${encodeURIComponent(key)}`);
@@ -124,155 +169,260 @@ async function loadSession(id, key) {
   return res.json();
 }
 
-async function renderResults(id, key) {
+let current = null;
+async function renderResults(id, key, { reload = true } = {}) {
   clearTimeout(pollTimer);
-  let s;
-  try {
-    s = await loadSession(id, key);
-  } catch (err) {
-    app.replaceChildren(h('div', { class: 'card' }, h('h2', {}, 'Scan not found'), h('p', {}, err.message), h('a', { href: '/' }, 'Start a new scan')));
-    return;
+  if (reload || !current) {
+    try {
+      current = await loadSession(id, key);
+    } catch (err) {
+      app.replaceChildren(h('div', { class: 'card narrow' }, h('h2', {}, 'Scan not found'), h('p', {}, err.message), h('a', { href: '/' }, 'Start a new scan')));
+      return;
+    }
   }
+  const s = current;
+  const rerender = () => renderResults(id, key, { reload: false });
 
-  const main = h('div', { class: 'results-main' });
-  const side = h('aside', { class: 'results-side' }, teamPanel(s, id, key));
-  main.append(header(s));
+  // Preserve the invite form across re-renders.
+  const typed = [...document.querySelectorAll('#invite-form input')].map((i) => i.value);
+  const activeName = document.activeElement?.name;
 
+  let body;
   if (s.stage === 'error') {
-    main.append(h('div', { class: 'card error-card' }, h('h2', {}, 'The scan could not complete'), h('p', {}, s.error), h('p', { class: 'muted' }, 'Our team has the details and will follow up with you.')));
+    body = h('div', { class: 'card narrow error-card' }, h('h2', {}, 'The scan could not complete'), h('p', {}, s.error), h('p', { class: 'muted' }, 'Our team has the details and will follow up with you.'));
   } else if (s.stage !== 'complete') {
-    main.append(progress(s));
+    body = h('div', { class: 'progress-layout' }, progress(s), s.technical ? teamPanel(s, id, key) : null);
     pollTimer = setTimeout(() => renderResults(id, key), 4000);
   } else {
-    main.append(executive(s), stats(s), fusionSection(s), othersSection(s, id, key));
+    body = resultsView(s, id, key, rerender);
   }
+  app.replaceChildren(scanBar(s), body);
 
-  // Preserve focus in the invite form across polls.
-  const active = document.activeElement?.name;
-  const typed = [...document.querySelectorAll('#invite-form input')].map((i) => i.value);
-  app.replaceChildren(h('div', { class: 'results-layout' }, main, side));
   document.querySelectorAll('#invite-form input').forEach((i, n) => { i.value = typed[n] ?? ''; });
-  if (active) document.querySelector(`#invite-form [name="${active}"]`)?.focus();
+  if (activeName) document.querySelector(`#invite-form [name="${activeName}"]`)?.focus();
 }
 
-function header(s) {
-  const pill = s.stage === 'complete' ? ['ok', 'Complete'] : s.stage === 'error' ? ['bad', 'Failed'] : ['run', 'In progress'];
-  return h('div', { class: 'results-header' },
-    h('div', {},
-      h('p', { class: 'eyebrow' }, `Security review for ${s.customer.company || s.customer.name}`),
+function scanBar(s) {
+  const status = s.stage === 'complete' ? ['ok', 'Completed'] : s.stage === 'error' ? ['bad', 'Failed'] : ['run', 'Running'];
+  return h('div', { class: 'cx-scanbar' },
+    h('div', { class: 'cx-project' },
+      h('span', { class: 'cx-crumb' }, 'Projects / ', s.customer?.company || s.customer?.name || 'Scan'),
       h('h1', {}, `${s.repo.owner}/${s.repo.repo}`),
-      h('p', { class: 'muted' }, h('a', { href: s.repo.url, target: '_blank', rel: 'noopener' }, s.repo.url), s.cx?.branch || s.branch ? ` · branch ${s.cx?.branch || s.branch}` : '', s.mode === 'demo' ? ' · demo data' : ''),
+      h('div', { class: 'cx-meta' },
+        h('span', {}, h('b', {}, 'Branch '), s.cx?.branch || s.branch || 'default'),
+        h('span', {}, h('b', {}, 'Scanned '), fmtDate(s.completedAt || s.createdAt)),
+        h('span', {}, h('b', {}, 'Source '), h('a', { href: s.repo.url, target: '_blank', rel: 'noopener' }, 'GitHub')),
+        s.mode === 'demo' ? h('span', { class: 'demo-tag' }, 'Demo data') : null,
+      ),
     ),
-    h('span', { class: `pill ${pill[0]}` }, pill[1]),
+    h('div', { class: 'cx-scanbar-right' },
+      h('span', { class: `cx-status ${status[0]}` }, h('span', { class: 'dot' }), status[1]),
+      s.cx?.url ? h('a', { class: 'btn-outline', href: s.cx.url, target: '_blank', rel: 'noopener' }, 'Open in Checkmarx One ↗') : null,
+    ),
   );
 }
 
 function progress(s) {
   const idx = Math.max(0, STAGES.findIndex(([k]) => k === s.stage));
   const started = new Date(s.createdAt).getTime();
-  const mins = Math.floor((Date.now() - started) / 60000);
-  const secs = Math.floor(((Date.now() - started) % 60000) / 1000);
+  const secs = Math.max(0, Math.floor((Date.now() - started) / 1000));
   return h('div', { class: 'card' },
     h('h2', {}, 'Scanning your repository'),
-    h('p', { class: 'muted' }, `Elapsed ${mins}m ${String(secs).padStart(2, '0')}s · this usually takes a few minutes. You can invite your team while you wait →`),
-    h('ol', { class: 'stepper' }, STAGES.map(([key, label], i) =>
+    h('p', { class: 'muted' }, `Elapsed ${Math.floor(secs / 60)}m ${String(secs % 60).padStart(2, '0')}s · this usually takes a few minutes.${s.technical ? ' Invite your team while you wait →' : ''}`),
+    h('ol', { class: 'stepper' }, STAGES.map(([, label], i) =>
       h('li', { class: i < idx ? 'done' : i === idx ? 'current' : '' }, h('span', { class: 'dot' }), label))),
     s.cx?.engines?.length ? h('div', { class: 'engines' }, s.cx.engines.map((e) =>
       h('span', { class: `engine-chip ${String(e.status).toLowerCase()}` }, `${e.name}: ${e.status}`))) : null,
   );
 }
 
-const RISK_CLASS = { Critical: 'sev-critical', High: 'sev-high', Moderate: 'sev-medium', Low: 'sev-low' };
+function allFindings(s) {
+  return [...s.fusionOnly, ...s.others];
+}
 
-function executive(s) {
-  const e = s.executive ?? {};
-  return h('section', { class: 'card exec' },
-    h('div', { class: 'exec-top' },
-      h('div', {}, h('p', { class: 'eyebrow' }, 'Executive summary'), h('h2', {}, e.headline)),
-      h('div', { class: `risk ${RISK_CLASS[e.riskLevel] ?? ''}` }, h('small', {}, 'Overall risk'), h('strong', {}, e.riskLevel)),
+function filtered(s) {
+  const q = ui.search.trim().toLowerCase();
+  return allFindings(s).filter((f) =>
+    (ui.scanner === 'all' || f.engine === ui.scanner) &&
+    (!ui.severities.size || ui.severities.has(f.severity)) &&
+    (!ui.fusionOnly || f.fusionOnly) &&
+    (!q || `${f.title} ${f.explanation?.plainTitle} ${f.file} ${f.packageName} ${f.cwe} ${f.cve}`.toLowerCase().includes(q)));
+}
+
+function resultsView(s, id, key, rerender) {
+  const findings = allFindings(s);
+  const list = filtered(s);
+  const selected = findings.find((f) => f.id === ui.selected) ?? null;
+  const counts = Object.fromEntries(SCANNERS.map(([k]) => [k, findings.filter((f) => f.engine === k).length]));
+  const ranEngines = SCANNERS.filter(([k]) => k !== 'fusion' && counts[k]).map(([, label]) => label);
+
+  return h('div', { class: 'cx-page' },
+    s.reusedFrom ? h('p', { class: 'reused-note' }, `Showing the most recent scan of this sample repository (completed ${fmtDate(s.reusedFrom.completedAt)}).`) : null,
+
+    s.summary.fusionOnly ? h('div', { class: 'fusion-banner' },
+      h('div', { class: 'fusion-mark', 'aria-hidden': 'true' }, '✦'),
+      h('div', {},
+        h('strong', {}, `Checkmarx Fusion found ${s.summary.fusionOnly} ${s.summary.fusionOnly === 1 ? 'vulnerability' : 'vulnerabilities'} that no rule-based engine reported.`),
+        h('span', {}, ' These are logic, authorisation and cross-file flaws that pattern-matching scanners are not built to see.')),
+      h('button', { class: 'btn-fusion', onclick: () => { ui.fusionOnly = !ui.fusionOnly; ui.scanner = 'all'; rerender(); } }, ui.fusionOnly ? 'Show all results' : 'Show only Fusion findings'),
+    ) : null,
+
+    executive(s, rerender),
+
+    h('nav', { class: 'cx-tabs', 'aria-label': 'Scanners' },
+      [['all', 'All results', findings.length], ...SCANNERS.filter(([k]) => counts[k]).map(([k, label]) => [k, label, counts[k]])].map(([k, label, n]) =>
+        h('button', { class: `cx-tab ${ui.scanner === k ? 'active' : ''} ${k === 'fusion' ? 'fusion' : ''}`, onclick: () => { ui.scanner = k; rerender(); } },
+          k === 'fusion' ? '✦ ' : '', label, h('span', { class: 'count' }, n)))),
+
+    h('div', { class: `cx-workspace ${selected ? 'with-drawer' : ''}` },
+      h('aside', { class: 'cx-filters' },
+        h('div', { class: 'filter-group' },
+          h('input', { type: 'search', placeholder: 'Search vulnerabilities', value: ui.search, 'aria-label': 'Search', oninput: (e) => { ui.search = e.target.value; clearTimeout(ui.t); ui.t = setTimeout(() => { rerender(); document.querySelector('.cx-filters input[type=search]')?.focus(); }, 250); } })),
+        h('div', { class: 'filter-group' },
+          h('h4', {}, 'Severity'),
+          SEVERITIES.map((sev) => {
+            const n = findings.filter((f) => f.severity === sev).length;
+            if (!n) return null;
+            return h('label', { class: 'filter-check' },
+              h('input', { type: 'checkbox', checked: ui.severities.has(sev), onchange: (e) => { e.target.checked ? ui.severities.add(sev) : ui.severities.delete(sev); rerender(); } }),
+              h('span', { class: `sev-icon ${sev.toLowerCase()}` }), sev[0] + sev.slice(1).toLowerCase(), h('span', { class: 'count' }, n));
+          })),
+        h('div', { class: 'filter-group' },
+          h('h4', {}, 'Detection'),
+          h('label', { class: 'filter-check' },
+            h('input', { type: 'checkbox', checked: ui.fusionOnly, onchange: (e) => { ui.fusionOnly = e.target.checked; rerender(); } }),
+            'Found only by Fusion', h('span', { class: 'count' }, s.summary.fusionOnly)),
+          h('p', { class: 'filter-note' }, `${s.summary.confirmedByFusion ?? 0} rule-based finding(s) also confirmed by Fusion.`)),
+        s.technical ? teamPanel(s, id, key) : null,
+      ),
+
+      h('section', { class: 'cx-table-wrap' },
+        h('table', { class: 'cx-table' },
+          h('thead', {}, h('tr', {},
+            ['Severity', 'Vulnerability', 'Scanner', 'Language / Platform', 'Location', 'State', 'Status'].map((t) => h('th', { scope: 'col' }, t)))),
+          h('tbody', {}, list.length ? list.map((f) => row(f, rerender)) : h('tr', {}, h('td', { colspan: 7, class: 'empty' }, 'No results match these filters.')))),
+      ),
+
+      selected ? drawer(selected, ranEngines, rerender) : null,
     ),
+  );
+}
+
+function row(f, rerender) {
+  const location = f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : f.packageName ? f.packageName.replace(/^[A-Za-z]+-/, '') : '—';
+  const open = () => {
+    const first = !ui.selected;
+    ui.selected = f.id;
+    ui.tab = null;
+    if (first) ui.execOpen = false; // make room: the details sit next to the table
+    rerender();
+    if (first) document.querySelector('.cx-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  return h('tr', { class: `${f.fusionOnly ? 'fusion-row' : ''} ${ui.selected === f.id ? 'selected' : ''}`, tabindex: 0, onclick: open, onkeydown: (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), open()) },
+    h('td', {}, h('span', { class: `sev-pill ${f.severity.toLowerCase()}` }, h('span', { class: `sev-icon ${f.severity.toLowerCase()}` }), f.severity[0] + f.severity.slice(1).toLowerCase())),
+    h('td', { class: 'vuln' },
+      h('div', { class: 'vuln-name' }, f.explanation?.plainTitle || f.title,
+        f.fusionOnly ? h('span', { class: 'chip fusion' }, '✦ Fusion only') : null,
+        f.confirmedByFusion ? h('span', { class: 'chip confirmed' }, '✓ Confirmed by Fusion') : null),
+      f.explanation?.plainTitle && f.explanation.plainTitle !== f.title ? h('div', { class: 'vuln-query' }, f.title) : null),
+    h('td', {}, scannerLabel(f.engine)),
+    h('td', {}, f.language || '—'),
+    h('td', { class: 'mono' }, location),
+    h('td', {}, (f.state || 'TO_VERIFY').replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())),
+    h('td', {}, (f.status || 'NEW').toLowerCase().replace(/^\w/, (c) => c.toUpperCase())),
+  );
+}
+
+function drawer(f, ranEngines, rerender) {
+  const ex = f.explanation ?? {};
+  const tabs = [
+    f.fusionOnly ? ['fusion', '✦ Fusion insight'] : null,
+    ['plain', 'Plain language'],
+    f.nodes?.length ? ['vector', 'Attack vector'] : null,
+    ['details', 'Details'],
+  ].filter(Boolean);
+  const tab = tabs.some(([k]) => k === ui.tab) ? ui.tab : tabs[0][0];
+  const close = () => { ui.selected = null; rerender(); };
+
+  const section = (title, text) => (text ? h('section', { class: 'drawer-section' }, h('h4', {}, title), h('p', {}, text)) : null);
+
+  let content;
+  if (tab === 'fusion') {
+    content = [
+      h('div', { class: 'never-seen' },
+        h('div', { class: 'never-title' }, '✦ Never reported by rule-based scanning'),
+        h('p', {}, 'Every other engine ran on this code and none of them flagged this issue:'),
+        h('div', { class: 'engine-misses' }, (ranEngines.length ? ranEngines : ['SAST', 'SCA', 'IaC Security', 'Secret Detection']).map((e) => h('span', { class: 'miss' }, '✕ ', e)), h('span', { class: 'hit' }, '✓ Fusion'))),
+      section('What Fusion determined', f.description),
+      section('Why rule-based tools miss this', ex.whyFusionFoundIt),
+      section('Business impact', ex.businessImpact),
+      section('How to fix', ex.howToFix),
+      ex.urgency ? h('p', { class: 'urgency' }, ex.urgency) : null,
+      f.nodes?.length ? h('section', { class: 'drawer-section' }, h('h4', {}, 'Where it happens'), vector(f, 4)) : null,
+    ];
+  } else if (tab === 'plain') {
+    content = [
+      section('What it means', ex.whatItMeans),
+      section('Business impact', ex.businessImpact),
+      section('How to fix', ex.howToFix),
+      ex.urgency ? h('p', { class: 'urgency' }, ex.urgency) : null,
+    ];
+  } else if (tab === 'vector') {
+    content = [vector(f)];
+  } else {
+    content = h('dl', { class: 'info' },
+      [
+        ['Vulnerability', f.title], ['Scanner', scannerLabel(f.engine)], ['Severity', f.severity],
+        ['CWE', f.cwe && `CWE-${f.cwe}`], ['CVE', f.cve], ['CVSS', f.cvss], ['Language / platform', f.language],
+        ['Package', f.packageName], ['Fixed in', f.recommendedVersion], ['File', f.file && `${f.file}${f.line ? `:${f.line}` : ''}`],
+        ['Expected', f.expected], ['Actual', f.actual], ['State', f.state], ['Status', f.status],
+        ['First detected', f.firstFoundAt && fmtDate(f.firstFoundAt)], ['Description', f.description],
+      ].filter(([, v]) => v).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
+  }
+
+  return h('aside', { class: `cx-drawer ${f.fusionOnly ? 'fusion' : ''}`, 'aria-label': 'Result details' },
+    h('header', {},
+      h('div', {},
+        h('span', { class: `sev-pill ${f.severity.toLowerCase()}` }, h('span', { class: `sev-icon ${f.severity.toLowerCase()}` }), f.severity[0] + f.severity.slice(1).toLowerCase()),
+        f.fusionOnly ? h('span', { class: 'chip fusion' }, '✦ Fusion only') : null,
+        f.confirmedByFusion ? h('span', { class: 'chip confirmed' }, '✓ Confirmed by Fusion') : null),
+      h('button', { class: 'close', 'aria-label': 'Close details', onclick: close }, '×')),
+    h('h2', {}, ex.plainTitle || f.title),
+    h('p', { class: 'drawer-sub' }, scannerLabel(f.engine), f.cwe ? ` · CWE-${f.cwe}` : '', f.cve ? ` · ${f.cve}` : ''),
+    h('div', { class: 'drawer-tabs', role: 'tablist' }, tabs.map(([k, label]) =>
+      h('button', { role: 'tab', 'aria-selected': String(k === tab), class: k === tab ? 'active' : '', onclick: () => { ui.tab = k; rerender(); } }, label))),
+    h('div', { class: 'drawer-body' }, content),
+  );
+}
+
+function vector(f, limit = Infinity) {
+  const nodes = f.nodes.slice(0, limit);
+  return h('ol', { class: 'vector' }, nodes.map((n, i) =>
+    h('li', { class: i === 0 ? 'source' : i === f.nodes.length - 1 ? 'sink' : '' },
+      h('span', { class: 'node-role' }, i === 0 ? 'Source' : i === f.nodes.length - 1 ? 'Sink' : `Step ${i + 1}`),
+      h('span', { class: 'node-name mono' }, n.name || n.method || '—'),
+      h('span', { class: 'node-loc mono' }, `${n.file}${n.line ? `:${n.line}` : ''}`))),
+  f.nodes.length > nodes.length ? h('li', { class: 'more' }, `+ ${f.nodes.length - nodes.length} more steps (Attack vector tab)`) : null);
+}
+
+const RISK_CLASS = { Critical: 'critical', High: 'high', Moderate: 'medium', Low: 'low' };
+
+function executive(s, rerender) {
+  const e = s.executive ?? {};
+  const sum = s.summary;
+  return h('details', { class: 'card exec', open: ui.execOpen, ontoggle: (ev) => { ui.execOpen = ev.target.open; } },
+    h('summary', {},
+      h('span', { class: 'eyebrow' }, 'Executive summary'),
+      h('span', { class: `risk ${RISK_CLASS[e.riskLevel] ?? ''}` }, `Overall risk: ${e.riskLevel ?? '—'}`)),
+    h('h2', {}, e.headline),
+    h('div', { class: 'stats' },
+      h('button', { class: 'stat fusion', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; rerender(); } }, h('strong', {}, sum.fusionOnly), h('span', {}, 'found only by Fusion')),
+      h('div', { class: 'stat' }, h('strong', {}, sum.total), h('span', {}, 'total findings')),
+      ...SEVERITIES.slice(0, 4).map((sev) => h('div', { class: `stat stat-${sev.toLowerCase()}` }, h('strong', {}, sum.allBySeverity[sev]), h('span', {}, sev.toLowerCase())))),
     e.fusionValue ? h('p', { class: 'fusion-callout' }, h('strong', {}, 'What Fusion added: '), e.fusionValue) : null,
     h('div', { class: 'grid two' },
       h('div', {}, h('h3', {}, 'Key risks'), h('ul', {}, (e.keyPoints ?? []).map((p) => h('li', {}, p)))),
-      h('div', {}, h('h3', {}, 'Recommended next steps'), h('ol', {}, (e.nextSteps ?? []).map((p) => h('li', {}, p)))),
-    ),
-  );
-}
-
-function stats(s) {
-  const sum = s.summary;
-  return h('div', { class: 'stats' },
-    h('div', { class: 'stat fusion' }, h('strong', {}, sum.fusionOnly), h('span', {}, 'found only by Fusion')),
-    h('div', { class: 'stat' }, h('strong', {}, sum.total), h('span', {}, 'total findings')),
-    ...SEVERITIES.slice(0, 4).map((sev) => h('div', { class: `stat stat-${sev.toLowerCase()}` }, h('strong', {}, sum.allBySeverity[sev]), h('span', {}, sev.toLowerCase()))),
-    sum.confirmedByFusion ? h('div', { class: 'stat' }, h('strong', {}, sum.confirmedByFusion), h('span', {}, 'confirmed by Fusion')) : null,
-  );
-}
-
-function findingCard(f, { highlight = false } = {}) {
-  const ex = f.explanation ?? {};
-  const open = ui.openIds.has(f.id);
-  const location = f.file ? `${f.file}${f.line ? `:${f.line}` : ''}` : f.packageName ? f.packageName.replace(/^[A-Za-z]+-/, '') : '';
-  return h('article', { class: `finding ${highlight ? 'highlight' : ''}` },
-    h('header', {},
-      h('span', { class: `sev sev-${f.severity.toLowerCase()}` }, f.severity),
-      h('div', { class: 'finding-title' },
-        h('h3', {}, ex.plainTitle || f.title),
-        h('p', { class: 'meta' }, f.engineLabel, location ? ` · ${location}` : '', f.cwe ? ` · CWE-${f.cwe}` : '', f.cve ? ` · ${f.cve}` : ''),
-      ),
-      f.fusionOnly ? h('span', { class: 'badge fusion' }, 'Fusion only') : null,
-      f.confirmedByFusion ? h('span', { class: 'badge confirmed' }, '✓ Confirmed by Fusion') : null,
-    ),
-    h('div', { class: 'explain grid three' },
-      h('div', {}, h('h4', {}, 'What it means'), h('p', {}, ex.whatItMeans)),
-      h('div', {}, h('h4', {}, 'Business impact'), h('p', {}, ex.businessImpact)),
-      h('div', {}, h('h4', {}, 'How to fix'), h('p', {}, ex.howToFix)),
-    ),
-    ex.whyFusionFoundIt ? h('p', { class: 'why-fusion' }, h('strong', {}, 'Why only Fusion caught this: '), ex.whyFusionFoundIt) : null,
-    ex.urgency ? h('p', { class: 'urgency' }, ex.urgency) : null,
-    h('details', { open, ontoggle: (e) => (e.target.open ? ui.openIds.add(f.id) : ui.openIds.delete(f.id)) },
-      h('summary', {}, 'Technical details'),
-      h('dl', {},
-        ...[
-          ['Engine finding', f.title], ['Description', f.description], ['Language / platform', f.language],
-          ['Source', f.file && `${f.file}${f.line ? ` line ${f.line}` : ''}`],
-          ['Sink', f.sinkFile && (f.sinkFile !== f.file || f.sinkLine !== f.line) && `${f.sinkFile}${f.sinkLine ? ` line ${f.sinkLine}` : ''}`],
-          ['Package', f.packageName], ['Fixed in', f.recommendedVersion], ['CVSS', f.cvss],
-          ['Expected', f.expected], ['Actual', f.actual], ['State', f.state],
-        ].filter(([, v]) => v).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]),
-      ),
-    ),
-  );
-}
-
-function fusionSection(s) {
-  return h('section', { class: 'section fusion-section' },
-    h('div', { class: 'section-head' },
-      h('h2', {}, 'Found only by Checkmarx Fusion'),
-      h('p', {}, 'These issues were not reported by the rule-based (deterministic) engines. Fusion reasons about how your application actually behaves across files and frameworks — catching logic and authorisation flaws that pattern-matching misses.'),
-    ),
-    s.fusionOnly.length
-      ? s.fusionOnly.map((f) => findingCard(f, { highlight: true }))
-      : h('div', { class: 'card muted' }, 'Fusion did not report anything beyond the rule-based engines on this scan.'),
-  );
-}
-
-function othersSection(s, id, key) {
-  const engines = [...new Set(s.others.map((f) => f.engineLabel))];
-  const list = s.others.filter((f) =>
-    (ui.filterEngine === 'all' || f.engineLabel === ui.filterEngine) &&
-    (ui.filterSeverity === 'all' || f.severity === ui.filterSeverity));
-  const select = (label, value, options, onchange) => h('label', { class: 'inline' }, label,
-    h('select', { onchange: (e) => { onchange(e.target.value); renderResults(id, key); } },
-      h('option', { value: 'all' }, 'All'), options.map((o) => h('option', { value: o, selected: o === value }, o))));
-  return h('section', { class: 'section' },
-    h('div', { class: 'section-head row' },
-      h('div', {}, h('h2', {}, 'All other findings'), h('p', {}, `${s.others.length} issues from SAST, SCA, IaC, secrets and API security engines.`)),
-      h('div', { class: 'filters' },
-        select('Engine', ui.filterEngine, engines, (v) => (ui.filterEngine = v)),
-        select('Severity', ui.filterSeverity, SEVERITIES, (v) => (ui.filterSeverity = v))),
-    ),
-    list.length ? list.map((f) => findingCard(f)) : h('div', { class: 'card muted' }, 'No findings match these filters.'),
+      h('div', {}, h('h3', {}, 'Recommended next steps'), h('ol', {}, (e.nextSteps ?? []).map((p) => h('li', {}, p))))),
   );
 }
 
@@ -291,9 +441,9 @@ function teamPanel(s, id, key) {
       if (!res.ok) throw new Error(data.error);
       document.getElementById('invite-form')?.reset();
       await renderResults(id, key);
-      const m = document.querySelector('.invite-msg');
-      const queued = data.results.filter((r) => r.delivery === 'queued').length;
       const failed = data.results.filter((r) => r.delivery === 'failed').map((r) => r.email);
+      const queued = data.results.some((r) => r.delivery === 'queued');
+      const m = document.querySelector('.invite-msg');
       if (m) m.textContent = failed.length
         ? `Could not email ${failed.join(', ')}. Please check the address or try again.`
         : `${queued ? 'Invitation queued for' : 'Invitation sent to'} ${invitees.map((i) => i.email).join(', ')}.`;
@@ -304,9 +454,9 @@ function teamPanel(s, id, key) {
   }
 
   const form = h('form', { id: 'invite-form', class: 'invite-form', novalidate: true },
-    h('label', {}, 'Name', h('input', { name: 'inviteName', placeholder: 'Colleague name' })),
-    h('label', {}, 'Email', h('input', { name: 'inviteEmail', type: 'email', placeholder: 'name@company.com', required: true })),
-    h('button', { class: 'primary small', type: 'submit' }, 'Send invite'),
+    h('input', { name: 'inviteName', placeholder: 'Name', 'aria-label': 'Colleague name' }),
+    h('input', { name: 'inviteEmail', type: 'email', placeholder: 'name@company.com', 'aria-label': 'Colleague email', required: true }),
+    h('button', { class: 'primary small', type: 'submit' }, 'Invite'),
   );
   form.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -317,17 +467,17 @@ function teamPanel(s, id, key) {
 
   const pending = (s.team ?? []).filter((t) => t.delivery !== 'sent' && t.delivery !== 'queued');
   return h('div', { class: 'card team' },
-    h('h2', {}, 'Your team'),
+    h('h4', {}, 'Your team'),
     h('ul', { class: 'people' },
-      h('li', {}, h('div', {}, h('strong', {}, s.technical.name), h('small', {}, s.technical.email)), h('span', { class: 'tag-mini' }, 'Technical contact')),
+      h('li', {}, h('div', {}, h('strong', {}, s.technical.name), h('small', {}, s.technical.email)), h('span', { class: 'tag-mini' }, 'Technical')),
       (s.team ?? []).map((t) => h('li', {},
-        h('div', {}, h('strong', {}, t.name || t.email), h('small', {}, t.name ? t.email : ''), h('small', { class: `status ${t.delivery}` }, status[t.delivery] ?? t.delivery)),
+        h('div', {}, h('strong', {}, t.name || t.email), t.name ? h('small', {}, t.email) : null, h('small', { class: `status ${t.delivery}` }, status[t.delivery] ?? t.delivery)),
         h('button', { class: 'link', type: 'button', onclick: (e) => invite([{ name: t.name, email: t.email, role: t.role }], e.target) },
           t.delivery === 'sent' || t.delivery === 'queued' ? 'Resend' : 'Invite'),
       )),
     ),
     pending.length > 1 ? h('button', { class: 'secondary small', type: 'button', onclick: (e) => invite(pending.map(({ name, email, role }) => ({ name, email, role })), e.target) }, `Invite all ${pending.length}`) : null,
-    h('h3', {}, 'Invite someone else'),
+    h('p', { class: 'invite-label' }, 'Invite someone else'),
     form,
     msg,
   );
@@ -340,5 +490,8 @@ function route() {
   if (m && key) renderResults(m[1], key);
   else renderRegister();
 }
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && ui.selected && current) { ui.selected = null; const m = location.pathname.match(/^\/s\/([a-f0-9-]{36})$/); renderResults(m[1], new URLSearchParams(location.search).get('k'), { reload: false }); }
+});
 window.addEventListener('popstate', route);
 route();

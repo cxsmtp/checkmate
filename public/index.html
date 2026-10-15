@@ -9,7 +9,7 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo" aria-hidden="true">♞</span> <span id="event-name">Checkmate</span></div>
-    <div class="tag">Powered by Checkmarx One · Fusion</div>
+    <div class="tag">Powered by Checkmarx One · Fusion <span id="version" class="version"></span></div>
   </header>
 
   <main id="app" class="container" aria-live="polite"></main>
@@ -24,8 +24,8 @@
       <fieldset>
         <legend>Your details</legend>
         <div class="grid two">
-          <label>Full name<input name="name" autocomplete="name" required></label>
-          <label>Work email<input name="email" type="email" autocomplete="email" required></label>
+          <label><span>Full name</span><input name="name" autocomplete="name" required></label>
+          <label><span>Work email</span><input name="email" type="email" autocomplete="email" required></label>
         </div>
         <label><span>Company <span class="muted">(optional)</span></span><input name="company" autocomplete="organization"></label>
       </fieldset>
@@ -35,8 +35,8 @@
         <p class="hint">The engineer who owns this repository. Can be you.</p>
         <button type="button" class="link" id="same-as-me">Same as me</button>
         <div class="grid two">
-          <label>Name<input name="technicalName" required></label>
-          <label>Email<input name="technicalEmail" type="email" required></label>
+          <label><span>Name</span><input name="technicalName" required></label>
+          <label><span>Email</span><input name="technicalEmail" type="email" required></label>
         </div>
       </fieldset>
 
@@ -50,12 +50,17 @@
 
       <fieldset>
         <legend>Repository</legend>
-        <div class="grid two wide-first">
-          <label>GitHub repository URL<input name="githubUrl" type="url" placeholder="https://github.com/org/repo" required></label>
-          <label><span>Branch <span class="muted">(optional)</span></span><input name="branch" placeholder="main"></label>
+        <input type="hidden" name="sampleId">
+        <div id="samples" class="samples"></div>
+        <p class="error" data-error="sampleId"></p>
+        <div id="own-repo">
+          <div class="grid two wide-first">
+            <label><span>GitHub repository URL</span><input name="githubUrl" type="url" placeholder="https://github.com/org/repo" required></label>
+            <label><span>Branch <span class="muted">(optional)</span></span><input name="branch" placeholder="main"></label>
+          </div>
+          <label class="check"><input type="checkbox" name="consent"> I'm authorised to have this repository scanned by Checkmarx.</label>
+          <p class="error" data-error="consent"></p>
         </div>
-        <label class="check"><input type="checkbox" name="consent"> I'm authorised to have this repository scanned by Checkmarx.</label>
-        <p class="error" data-error="consent"></p>
         <label class="check"><input type="checkbox" name="inviteNow" checked> Email my points of contact a link to the results now.</label>
       </fieldset>
 

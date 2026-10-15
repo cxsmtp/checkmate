@@ -3,14 +3,20 @@ import path from 'node:path';
 import nodemailer from 'nodemailer';
 import { config } from './config.js';
 
-const transport = config.smtp.host
-  ? nodemailer.createTransport({
-      host: config.smtp.host,
-      port: config.smtp.port,
-      secure: config.smtp.secure,
-      auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.pass } : undefined,
-    })
-  : null;
+// Built on demand so SMTP settings saved in the admin panel apply without a restart.
+let cached = { key: null, transport: null };
+function getTransport() {
+  const { host, port, secure, user, pass } = config.smtp;
+  if (!host) return null;
+  const key = JSON.stringify([host, port, secure, user, pass]);
+  if (cached.key !== key) {
+    cached = {
+      key,
+      transport: nodemailer.createTransport({ host, port, secure, requireTLS: !secure, auth: user ? { user, pass } : undefined }),
+    };
+  }
+  return cached.transport;
+}
 
 // Without SMTP, emails land in data/outbox so nothing is silently lost.
 const outbox = path.resolve(config.dataDir, 'outbox');
@@ -18,6 +24,7 @@ const outbox = path.resolve(config.dataDir, 'outbox');
 const escape = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 export async function send({ to, subject, text, html }) {
+  const transport = getTransport();
   if (transport) {
     const info = await transport.sendMail({ from: config.smtp.from, to, subject, text, html });
     return { delivered: true, messageId: info.messageId };
