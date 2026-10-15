@@ -83,7 +83,8 @@ app.use((req, res, next) => {
     'Referrer-Policy': 'no-referrer',
     'X-Frame-Options': 'DENY',
     'Cross-Origin-Opener-Policy': 'same-origin',
-    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    // Geolocation only for this page: it picks the city theme, in the browser.
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=(self)',
     'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   });
   if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000');
@@ -181,7 +182,7 @@ function newSession(fields) {
 app.get('/api/health', (req, res) => res.json({ ok: true, version: config.version, integrity: integrity.last?.state ?? 'pending' }));
 
 app.get('/api/config', (req, res) =>
-  res.json({ eventName: config.eventName, mode: config.mode, version: config.version, samples: samples.publicList() }),
+  res.json({ eventName: config.eventName, mode: config.mode, version: config.version, samples: samples.publicList(), defaultCity: config.defaultCity, askLocation: config.askLocation }),
 );
 
 app.post('/api/sessions', rateLimit(10, 60 * 60 * 1000, 'register'), wrap(async (req, res) => {
@@ -195,6 +196,7 @@ app.post('/api/sessions', rateLimit(10, 60 * 60 * 1000, 'register'), wrap(async 
     technical: value.technical,
     repo: value.repo,
     branch: value.branch,
+    theme: value.theme,
     team: value.pocs.map((p) => ({ ...p, delivery: 'not-invited' })),
   });
   audit({ type: 'registration', outcome: 'info', reason: `${value.customer.email} registered ${value.repo.url}${value.sampleId ? ' (sample)' : ''}` });
@@ -343,6 +345,7 @@ admin.get('/sessions', (req, res) => {
       team: (s.team ?? []).map(({ name, email, role, delivery }) => ({ name, email, role, delivery })),
       repo: s.repo?.url,
       branch: s.branch,
+      theme: s.theme ?? null,
       fusionOnly: s.summary?.fusionOnly ?? null,
       total: s.summary?.total ?? null,
       reused: Boolean(s.reusedFrom),

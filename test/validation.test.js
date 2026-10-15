@@ -35,3 +35,10 @@ test('parses GitHub URLs strictly', () => {
   assert.equal(parseGithubUrl('https://github.com/org/repo/tree/main'), null);
   assert.equal(parseGithubUrl('https://github.com.evil.com/org/repo'), null);
 });
+
+test('only a known city name is kept with a registration, never anything else', () => {
+  assert.equal(validateRegistration({ ...valid, theme: 'dubai' }).value.theme, 'dubai');
+  assert.equal(validateRegistration({ ...valid, theme: '25.2,55.27' }).value.theme, null);
+  assert.equal(validateRegistration({ ...valid, theme: { lat: 1 } }).value.theme, null);
+  assert.equal(validateRegistration(valid).value.theme, null);
+});

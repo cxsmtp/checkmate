@@ -10,6 +10,8 @@ export function parseGithubUrl(v) {
   return { owner: m[1], repo: m[2], url: `https://github.com/${m[1]}/${m[2]}` };
 }
 
+export const CITY_THEMES = ['dubai', 'new-york', 'boston', 'singapore', 'melbourne'];
+
 const clean = (v, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Validates the registration form. Returns { value } or { errors }. */
@@ -44,5 +46,7 @@ export function validateRegistration(body = {}, { getSample = () => null } = {})
   if (!sample && body.consent !== true) errors.consent = 'Please confirm you are authorised to have this repository scanned.';
 
   if (Object.keys(errors).length) return { errors };
-  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null } };
+  // Only a known city name is kept (never coordinates); anything else means no theme.
+  const theme = CITY_THEMES.includes(body.theme) ? body.theme : null;
+  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null, theme } };
 }

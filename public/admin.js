@@ -97,7 +97,7 @@ async function registrations() {
         h('td', {}, s.customer?.name, h('small', {}, s.customer?.email), s.customer?.company ? h('small', {}, s.customer.company) : null),
         h('td', {}, s.technical?.name, h('small', {}, s.technical?.email)),
         h('td', {}, s.team.map((t) => h('small', {}, `${t.name || t.email} · ${t.delivery}`))),
-        h('td', {}, s.repo, s.kind === 'sample' ? h('small', {}, s.reused ? 'Sample (reused scan)' : 'Sample') : null),
+        h('td', {}, s.repo, s.theme ? h('small', {}, `📍 ${s.theme}`) : null, s.kind === 'sample' ? h('small', {}, s.reused ? 'Sample (reused scan)' : 'Sample') : null),
         h('td', {}, h('span', { class: `pill ${s.stage === 'complete' ? 'ok' : s.stage === 'error' ? 'bad' : 'warn'}` }, s.stage), s.error ? h('small', {}, s.error) : null,
           s.total != null ? h('small', {}, `${s.fusionOnly} Fusion-only / ${s.total} total`) : null),
         h('td', {}, h('a', { href: s.link, target: '_blank', rel: 'noopener' }, 'Open'), s.cxUrl ? h('small', {}, h('a', { href: s.cxUrl, target: '_blank', rel: 'noopener' }, 'Checkmarx One ↗')) : null),
@@ -173,6 +173,8 @@ const SETTINGS_LAYOUT = [
     ['publicBaseUrl', 'Public address (used in email links)', { placeholder: 'https://checkmate.example.com' }],
     ['mode', 'Mode', { options: [['demo', 'Demo (sample findings, no tenant)'], ['live', 'Live (Checkmarx One tenant)']] }],
     ['sampleReuseHours', 'Reuse a sample\'s scan for (hours, 0 = always rescan)', { type: 'number' }],
+    ['defaultCity', 'City theme', { options: [['auto', 'Per visitor (location / time zone)'], ['dubai', 'Dubai'], ['new-york', 'New York'], ['boston', 'Boston'], ['singapore', 'Singapore'], ['melbourne', 'Melbourne']] }],
+    ['askLocation', 'Ask each new device for its location', { checkbox: true }],
   ]],
   ['Checkmarx One tenant', [
     ['checkmarx.baseUrl', 'Base URL', { placeholder: 'https://ast.checkmarx.net' }],

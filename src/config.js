@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import fs from 'node:fs';
 import path from 'node:path';
+import { CITY_THEMES } from './validation.js';
 
 const list = (v) =>
   String(v ?? '')
@@ -46,6 +47,9 @@ export const SETTINGS = {
   publicBaseUrl: { env: 'PUBLIC_BASE_URL', default: '' },
   mode: { env: 'CX_MODE', default: 'demo', options: ['demo', 'live'] },
   sampleReuseHours: { env: 'SAMPLE_REUSE_HOURS', default: 24, type: 'number' },
+  // City theme: "auto" asks each visitor (location, else a time-zone guess); a city fixes the event's theme.
+  defaultCity: { env: 'DEFAULT_CITY', default: 'auto', options: ['auto', ...CITY_THEMES] },
+  askLocation: { env: 'ASK_LOCATION', default: true, type: 'boolean' },
 
   'checkmarx.baseUrl': { env: 'CX_BASE_URL', default: 'https://ast.checkmarx.net' },
   'checkmarx.iamUrl': { env: 'CX_IAM_URL', default: 'https://iam.checkmarx.net' },
@@ -85,7 +89,7 @@ function coerce(def, raw) {
       return n;
     }
     case 'boolean':
-      return raw === true || raw === 'true' || raw === 'on';
+      return raw === true || raw === 'true' || raw === 'on' || raw === '1';
     case 'list':
       return Array.isArray(raw) ? raw.map((s) => String(s).trim().toLowerCase()).filter(Boolean) : list(raw);
     case 'json': {

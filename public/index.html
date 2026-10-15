@@ -9,15 +9,18 @@
 <body>
   <header class="topbar">
     <div class="brand"><span class="logo" aria-hidden="true">♞</span> <span id="event-name">Checkmate</span></div>
-    <div class="tag">Powered by Checkmarx One · Fusion <span id="version" class="version"></span></div>
+    <div class="tag">Powered by Checkmarx One · Fusion <span id="version" class="version"></span><button type="button" id="city-chip" class="city-chip" hidden></button></div>
   </header>
 
   <main id="app" class="container" aria-live="polite"></main>
 
   <template id="register-tpl">
     <section class="hero">
+      <span class="city-greeting" id="city-greeting" hidden></span>
       <h1>See what your scanner is missing.</h1>
       <p>Give us a GitHub repository. Checkmarx One scans it with <strong>Fusion</strong> switched on, and in a few minutes you'll see the issues rule-based tools didn't find — explained in plain language.</p>
+      <p class="landmarks" id="landmarks" hidden></p>
+      <div class="hero-skyline" data-skyline aria-hidden="true"></div>
     </section>
 
     <form id="register" class="card form" novalidate>

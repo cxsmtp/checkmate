@@ -1,3 +1,5 @@
+import { THEMES, applyTheme, nearestCity, cityFromTimeZone, paintSkylines } from './themes.js';
+
 const app = document.getElementById('app');
 
 // Build DOM safely: every string goes in via textContent, never innerHTML.
@@ -35,7 +37,7 @@ const STAGES = [
 ];
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
 
-let siteConfig = { eventName: 'Checkmate', samples: [] };
+let siteConfig = { eventName: 'Checkmate', samples: [], defaultCity: 'auto', askLocation: true };
 const configReady = fetch('/api/config')
   .then((r) => r.json())
   .then((c) => {
@@ -46,6 +48,90 @@ const configReady = fetch('/api/config')
     if (v) v.textContent = `v${c.version}`;
   })
   .catch(() => {});
+
+
+// ---------------------------------------------------------------------------
+// City theme: asked for once on this device; only the city name is kept.
+// ---------------------------------------------------------------------------
+const CITY_KEY = 'checkmate-city';
+const readCity = () => { try { return localStorage.getItem(CITY_KEY); } catch { return null; } };
+const storeCity = (v) => { try { localStorage.setItem(CITY_KEY, v); } catch { /* private mode: ask again next time */ } };
+let city = null;
+
+function setCity(key, { remember = true } = {}) {
+  city = THEMES[key] ? key : null;
+  if (remember) storeCity(city ?? 'none');
+  const theme = applyTheme(city);
+  const chip = document.getElementById('city-chip');
+  if (chip) {
+    chip.hidden = false;
+    chip.textContent = city ? `📍 ${theme.name}` : '📍 Choose your city';
+    chip.onclick = () => askForCity();
+  }
+  const greeting = document.getElementById('city-greeting');
+  const landmarks = document.getElementById('landmarks');
+  if (greeting) { greeting.hidden = !city; greeting.textContent = city ? theme.greeting : ''; }
+  if (landmarks) { landmarks.hidden = !city; landmarks.textContent = city ? theme.landmarks : ''; }
+}
+
+/** The theme to show before anyone answers: this device's choice, the event's city, or a time-zone guess. */
+function initialCity() {
+  const stored = readCity();
+  if (stored) return { key: stored === 'none' ? null : stored, asked: true };
+  if (siteConfig.defaultCity && siteConfig.defaultCity !== 'auto') return { key: siteConfig.defaultCity, asked: false };
+  return { key: cityFromTimeZone(), asked: false };
+}
+
+function askForCity() {
+  document.querySelector('.city-modal')?.remove();
+  const suggested = city ?? cityFromTimeZone() ?? (siteConfig.defaultCity !== 'auto' ? siteConfig.defaultCity : null);
+  const status = h('p', { class: 'city-status', role: 'status' });
+  const close = () => { modal.remove(); document.getElementById('city-chip')?.focus(); };
+  const choose = (key) => { setCity(key); close(); };
+
+  const locate = h('button', { class: 'primary', type: 'button', onclick: () => {
+    if (!window.isSecureContext || !navigator.geolocation) {
+      status.textContent = 'Location needs a secure (https) connection here. Please pick your city below.';
+      return;
+    }
+    locate.disabled = true;
+    status.textContent = 'Finding you…';
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        // The coordinates never leave this browser: only the nearest city is kept.
+        const found = nearestCity(coords.latitude, coords.longitude);
+        if (found.key) {
+          status.textContent = `${THEMES[found.key].greeting}! Theming everything for ${THEMES[found.key].name}.`;
+          setCity(found.key);
+          setTimeout(close, 900);
+        } else {
+          locate.disabled = false;
+          status.textContent = `We don't have a theme for your area yet (nearest is ${THEMES[found.nearest].name}, ${Math.round(found.d)} km away). Pick one below.`;
+        }
+      },
+      (err) => {
+        locate.disabled = false;
+        status.textContent = err.code === 1 ? 'No problem — pick your city below.' : 'We could not find your location. Pick your city below.';
+      },
+      { timeout: 10000, maximumAge: 3_600_000 },
+    );
+  } }, '📍 Use my location');
+
+  const modal = h('div', { class: 'city-modal', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'city-title', onclick: (e) => e.target === modal && close() },
+    h('div', { class: 'city-dialog' },
+      h('h2', { id: 'city-title' }, 'Make it feel like home'),
+      h('p', {}, 'Share your location and we\'ll theme the page and your results with your city\'s skyline.'),
+      h('div', { class: 'city-actions' }, locate, h('button', { class: 'link', type: 'button', onclick: () => choose(null) }, 'Not now')),
+      status,
+      h('div', { class: 'city-options' }, Object.entries(THEMES).map(([key, t]) =>
+        h('button', { type: 'button', class: `city-option ${key === suggested ? 'suggested' : ''}`, onclick: () => choose(key) },
+          t.name, h('small', {}, key === suggested ? 'Suggested for you' : t.landmarks.split(' · ')[0])))),
+      h('p', { class: 'privacy-note' }, 'Your coordinates stay in this browser. We only keep the city name, to show your results in the same theme.'),
+    ));
+  modal.addEventListener('keydown', (e) => e.key === 'Escape' && close());
+  document.body.append(modal);
+  locate.focus();
+}
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -92,6 +178,9 @@ function samplePicker(form) {
 async function renderRegister() {
   await configReady;
   app.replaceChildren(document.getElementById('register-tpl').content.cloneNode(true));
+  const start = initialCity();
+  setCity(start.key, { remember: false });
+  if (!start.asked && siteConfig.askLocation !== false) askForCity();
   const form = document.getElementById('register');
   const contacts = document.getElementById('contacts');
   contacts.append(contactRow(0, false), contactRow(1, false));
@@ -122,6 +211,7 @@ async function renderRegister() {
       sampleId: fd.get('sampleId') || undefined,
       githubUrl: fd.get('githubUrl'), branch: fd.get('branch'),
       consent: form.consent.checked, inviteNow: form.inviteNow.checked,
+      theme: city ?? undefined,
     };
 
     const btn = document.getElementById('submit');
@@ -182,6 +272,11 @@ async function renderResults(id, key, { reload = true } = {}) {
   }
   const s = current;
   const rerender = () => renderResults(id, key, { reload: false });
+  if (document.documentElement.dataset.cityFor !== s.id) {
+    // Everyone opening these results sees the visitor's city.
+    setCity(s.theme ?? initialCity().key, { remember: false });
+    document.documentElement.dataset.cityFor = s.id;
+  }
 
   // Preserve the invite form across re-renders.
   const typed = [...document.querySelectorAll('#invite-form input')].map((i) => i.value);
@@ -197,6 +292,7 @@ async function renderResults(id, key, { reload = true } = {}) {
     body = resultsView(s, id, key, rerender);
   }
   app.replaceChildren(scanBar(s), body);
+  paintSkylines();
 
   document.querySelectorAll('#invite-form input').forEach((i, n) => { i.value = typed[n] ?? ''; });
   if (activeName) document.querySelector(`#invite-form [name="${activeName}"]`)?.focus();
@@ -205,6 +301,7 @@ async function renderResults(id, key, { reload = true } = {}) {
 function scanBar(s) {
   const status = s.stage === 'complete' ? ['ok', 'Completed'] : s.stage === 'error' ? ['bad', 'Failed'] : ['run', 'Running'];
   return h('div', { class: 'cx-scanbar' },
+    h('div', { class: 'scanbar-skyline', 'data-skyline': '', 'aria-hidden': 'true' }),
     h('div', { class: 'cx-project' },
       h('span', { class: 'cx-crumb' }, 'Projects / ', s.customer?.company || s.customer?.name || 'Scan'),
       h('h1', {}, `${s.repo.owner}/${s.repo.repo}`),

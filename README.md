@@ -27,6 +27,24 @@ Open `http://<host>:3000` for the registration page and `http://<host>:3000/admi
 
 The default mode is **demo**: a simulated scan with sample findings, for rehearsing the booth. Switch to **live** under *Admin → Settings* once the Checkmarx One tenant is configured, and use **Test Checkmarx One connection** to check it.
 
+## City themes
+
+When the registration page opens, a visitor sees **Make it feel like home**. They can share their location or pick their city, and the whole experience takes that city's colours and skyline: the registration page, the results view, the Fusion highlights and the scan bar.
+
+| City | Skyline |
+| --- | --- |
+| Dubai | Dubai Frame · Burj Khalifa · Museum of the Future · Burj Al Arab, with palms and dunes |
+| New York | Statue of Liberty · Empire State · Chrysler · One World Trade · Brooklyn Bridge |
+| Boston | Old State House · Custom House Tower · Prudential · Hancock · Zakim Bridge |
+| Singapore | Supertree Grove · Marina Bay Sands · ArtScience Museum · Merlion · Singapore Flyer |
+| Melbourne | Shrine of Remembrance · Flinders Street Station · Eureka Tower · Royal Exhibition Building |
+
+- **Privacy:** the coordinates never leave the browser. The page picks the nearest city (within 300 km), and only that city's name is stored with the registration. That is why invited colleagues see the same theme.
+- **Without location:** the browser's time zone suggests a city, and the visitor can pick one or choose *Not now*. The answer is remembered on that device, so a booth kiosk asks once.
+- **Event-wide city:** *Admin → Settings → City theme* fixes one city for the whole event, and the location prompt can be switched off there.
+- **HTTPS required:** browsers only share location over HTTPS (or `localhost`). Serve the booth through an HTTPS reverse proxy. Over plain http the prompt explains this and offers the city list instead.
+- **Drawings:** the skylines are hand-drawn SVG in `public/themes.js`. There are no external images to load or license, and the page works offline. Adding a city means one entry there and one colour block in `styles.css`.
+
 ## Admin panel (`/admin`)
 
 | Tab | What it does |

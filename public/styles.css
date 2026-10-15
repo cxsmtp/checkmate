@@ -236,3 +236,110 @@ dl.info dt { color: var(--muted); } dl.info dd { margin: 0; word-break: break-wo
   .cx-table th:nth-child(3), .cx-table td:nth-child(3), .cx-table th:nth-child(5), .cx-table td:nth-child(5) { display: none; }
   dl.info { grid-template-columns: 1fr; }
 }
+
+/* ---- City themes ----------------------------------------------------------
+   Each city sets the brand colours, the sky and the skyline's layers. Cards keep
+   their solid surfaces, so text contrast never depends on the background. */
+:root {
+  --brand-deep: #2a1478;
+  --sky-top: #1d1450; --sky-bottom: #8f6bff;
+  --sil-far: #6a58b8; --sil-mid: #47379a; --sil-near: #1a1240; --sil-accent: #f2c14e;
+}
+:root[data-city="dubai"] {
+  --brand: #a8641a; --brand-2: #d9953f; --brand-soft: #fbefdc; --brand-ink: #6e3e0b; --brand-deep: #3b2412; --nav: #2a1a10;
+  --sky-top: #2c3e70; --sky-bottom: #f6c27a;
+  --sil-far: #c58d63; --sil-mid: #8e5a3a; --sil-near: #3b2412; --sil-accent: #ffd27a;
+}
+:root[data-city="new-york"] {
+  --brand: #1f5fd6; --brand-2: #5b8ff0; --brand-soft: #e5eefd; --brand-ink: #123c8c; --brand-deep: #0d1b3e; --nav: #0d1b3e;
+  --sky-top: #1b2a5a; --sky-bottom: #f29e6b;
+  --sil-far: #6e7aa6; --sil-mid: #3d4a78; --sil-near: #111a36; --sil-accent: #ffd27a;
+}
+:root[data-city="boston"] {
+  --brand: #a3312a; --brand-2: #d0614f; --brand-soft: #fbe9e6; --brand-ink: #6e1d17; --brand-deep: #1c2541; --nav: #1c2541;
+  --sky-top: #3f6d9e; --sky-bottom: #f6d9b4;
+  --sil-far: #a7b6c8; --sil-mid: #6f7f99; --sil-near: #26314f; --sil-accent: #e8c26a;
+}
+:root[data-city="singapore"] {
+  --brand: #d7263d; --brand-2: #f0546a; --brand-soft: #fde7ea; --brand-ink: #8c1123; --brand-deep: #2a0b16; --nav: #170c26;
+  --sky-top: #0f1430; --sky-bottom: #6b4aa3;
+  --sil-far: #4b3f7a; --sil-mid: #2e2656; --sil-near: #120c26; --sil-accent: #ffd36b;
+}
+:root[data-city="melbourne"] {
+  --brand: #0f6d8c; --brand-2: #3a9ab8; --brand-soft: #e2f3f8; --brand-ink: #0a4a60; --brand-deep: #0b2430; --nav: #0b2430;
+  --sky-top: #22708d; --sky-bottom: #f2cf98;
+  --sil-far: #8fb4bf; --sil-mid: #4f7987; --sil-near: #15313d; --sil-accent: #e6b84a;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --sky-top: #0b0a18; --sky-bottom: #241d4a; --sil-far: #2a2550; --sil-mid: #1c1840; --sil-near: #0e0c22; }
+  :root[data-city] { --sky-top: #070912; --sky-bottom: color-mix(in srgb, var(--brand) 35%, #0b0d1a); --sil-far: color-mix(in srgb, var(--brand) 25%, #151827); --sil-mid: color-mix(in srgb, var(--brand) 12%, #0f111d); --sil-near: #05060c; }
+}
+
+body { background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 70%) fixed; min-height: 100vh; }
+#skyline { position: fixed; inset: auto 0 0 0; height: min(46vh, 420px); z-index: 0; pointer-events: none; }
+#skyline svg { width: 100%; height: 100%; display: block; }
+#skyline .far { fill: var(--sil-far); opacity: .55; }
+#skyline .mid { fill: var(--sil-mid); opacity: .75; }
+#skyline .near { fill: var(--sil-near); }
+#skyline .cables line, #skyline .spokes line { stroke: var(--sil-near); stroke-width: 1.4; }
+#skyline .ring { fill: none; stroke: var(--sil-near); stroke-width: 7; }
+#skyline .gold { fill: var(--sil-accent); }
+.topbar, main, .city-modal { position: relative; z-index: 1; }
+.topbar { background: color-mix(in srgb, var(--nav) 88%, transparent); backdrop-filter: blur(6px); }
+.hero h1, .hero p { color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.35); }
+.hero .city-greeting { display: inline-block; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; font-size: .85rem; background: color-mix(in srgb, var(--brand) 85%, transparent); color: #fff; padding: 4px 12px; border-radius: 999px; margin-bottom: 10px; text-shadow: none; }
+.hero .landmarks { font-size: .82rem; opacity: .9; }
+.city-chip { background: rgba(255,255,255,.14); color: #fff; padding: 5px 12px; border-radius: 999px; font-size: .82rem; font-weight: 600; margin-left: 10px; }
+.city-chip:hover { background: rgba(255,255,255,.24); }
+
+/* Fusion follows the city's colours too */
+.fusion-banner, .stat.fusion, .never-seen { background: linear-gradient(110deg, var(--brand-deep) 0%, var(--brand) 60%, var(--brand-2) 100%); }
+.cx-scanbar { background: linear-gradient(110deg, var(--nav), color-mix(in srgb, var(--brand-deep) 70%, var(--brand))); }
+.cx-meta a { color: color-mix(in srgb, var(--brand-2) 60%, #fff); }
+.btn-fusion, .engine-misses .hit { color: var(--brand-ink); }
+
+/* Location prompt */
+.city-modal { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(8, 8, 20, .55); backdrop-filter: blur(3px); z-index: 20; padding: 16px; }
+.city-dialog { background: var(--surface); color: var(--text); border-radius: 16px; padding: 28px; max-width: 560px; width: 100%; box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.city-dialog h2 { font-size: 1.5rem; }
+.city-dialog p { color: var(--muted); margin-top: 0; }
+.city-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin: 14px 0; }
+.city-option { background: var(--surface-2); border: 2px solid var(--border); padding: 10px 12px; text-align: left; color: var(--text); font-weight: 600; }
+.city-option small { display: block; color: var(--muted); font-weight: 400; font-size: .75rem; }
+.city-option.suggested { border-color: var(--brand); }
+.city-actions { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.city-status { font-size: .88rem; min-height: 1.2em; margin: 10px 0 0; }
+.privacy-note { font-size: .78rem; color: var(--muted); margin: 12px 0 0; }
+@media (prefers-reduced-motion: no-preference) { #skyline svg { animation: rise .8s ease-out; } @keyframes rise { from { transform: translateY(30px); opacity: 0; } } }
+
+/* Solid backgrounds wherever text would otherwise sit on the sky */
+.cx-tabs { background: var(--surface); border-radius: var(--radius); padding: 0 8px; border: 1px solid var(--border); }
+body.admin { background: var(--bg); }
+body.admin #skyline { display: none; }
+
+/* The city as a postcard above the form, always fully visible */
+.hero { position: relative; max-width: none; margin: -24px calc(50% - 50vw) 0; padding: 40px 16px 310px; text-align: center; overflow: hidden; }
+body { overflow-x: clip; }
+/* The postcard carries the skyline on the form page; the background copy is for the results. */
+body:has(.hero) #skyline { display: none; }
+body:has(.hero) { background: var(--bg); }
+.hero { background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-bottom) 100%); }
+.hero > *:not(.hero-skyline) { position: relative; z-index: 1; max-width: 760px; margin-left: auto; margin-right: auto; }
+.hero-skyline { position: absolute; inset: auto 0 0 0; height: 300px; }
+.hero-skyline svg { width: 100%; height: 100%; display: block; }
+.hero-skyline .far { fill: var(--sil-far); opacity: .6; }
+.hero-skyline .mid { fill: var(--sil-mid); opacity: .85; }
+.hero-skyline .near { fill: var(--sil-near); }
+.hero-skyline .cables line, .hero-skyline .spokes line { stroke: var(--sil-near); stroke-width: 1.4; }
+.hero-skyline .ring { fill: none; stroke: var(--sil-near); stroke-width: 7; }
+.hero-skyline .gold { fill: var(--sil-accent); }
+.hero + .form, .hero ~ .form { margin-top: -30px; position: relative; z-index: 2; }
+#skyline { opacity: .45; }
+.cx-scanbar { position: relative; overflow: hidden; }
+.cx-scanbar > *:not(.scanbar-skyline) { position: relative; z-index: 1; }
+.scanbar-skyline { position: absolute; right: 0; bottom: 0; width: min(900px, 70%); height: 120%; opacity: .32; pointer-events: none; }
+.scanbar-skyline svg { width: 100%; height: 100%; display: block; }
+.scanbar-skyline g, .scanbar-skyline .gold { fill: #fff; }
+.scanbar-skyline .cables line, .scanbar-skyline .spokes line { stroke: #fff; stroke-width: 1.4; }
+.scanbar-skyline .ring { fill: none; stroke: #fff; stroke-width: 7; }
+@media (max-width: 640px) { .hero { padding-bottom: 210px; } .hero-skyline { height: 200px; } }
