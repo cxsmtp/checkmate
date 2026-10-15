@@ -23,6 +23,8 @@ docker run -d --name checkmate -p 3000:3000 -v checkmate-data:/data \
   -e AUTO_UPDATE=on ghcr.io/cxsmtp/checkmate:latest
 ```
 
+**Podman, self-updating** (a systemd service on Linux; Podman Desktop on Windows/macOS): see [deploy/podman/README.md](deploy/podman/README.md).
+
 Open `http://<host>:3000` for the registration page and `http://<host>:3000/admin` for the admin panel. Everything the app keeps (registrations, settings, sample repositories, installed updates, the activity log) is in the `/data` volume.
 
 The default mode is **demo**: a simulated scan with sample findings, for rehearsing the booth. Switch to **live** under *Admin → Settings* once the Checkmarx One tenant is configured, and use **Test Checkmarx One connection** to check it.

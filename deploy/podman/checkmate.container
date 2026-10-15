@@ -1,0 +1,48 @@
+# Podman Quadlet: runs Checkmate as a systemd service that starts at boot,
+# restarts if it stops, and keeps itself up to date.
+#
+# Rootless (recommended):  ~/.config/containers/systemd/checkmate.container
+# Rootful:                 /etc/containers/systemd/checkmate.container
+# then:  systemctl --user daemon-reload && systemctl --user start checkmate
+# (drop --user when rootful). Full guide: deploy/podman/README.md
+
+[Unit]
+Description=Checkmate event scanner
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=checkmate
+Image=ghcr.io/cxsmtp/checkmate:latest
+PublishPort=3000:3000
+Volume=checkmate-data:/data
+# Settings and tokens (copy checkmate.env.example; keep it chmod 600).
+EnvironmentFile=%h/.config/checkmate/checkmate.env
+
+# Hardened, as in compose.yaml: read-only image, no capabilities, no privilege escalation.
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+PodmanArgs=--pids-limit=256
+
+# Health: checked every 30 s; restarted by systemd if it stays unhealthy.
+HealthCmd=node scripts/healthcheck.mjs
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=20s
+HealthRetries=3
+HealthOnFailure=kill
+
+# Whole-image updates (new Node.js / OS fixes): podman-auto-update.timer pulls a newer
+# :latest daily and rolls back by itself if the new container does not start.
+# App releases arrive sooner, from inside the container (AUTO_UPDATE=on, every 5 minutes).
+AutoUpdate=registry
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=default.target
