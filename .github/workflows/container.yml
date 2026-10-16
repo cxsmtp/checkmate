@@ -146,11 +146,23 @@ jobs:
           cp integrity-amd64.json integrity.json
           sha256sum integrity.json
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      # GitHub signs builds of public repositories, and of private ones only on Enterprise Cloud
+      # (set the repository variable ATTESTATIONS=on there). Unsigned releases still publish, but
+      # running containers refuse to auto-update to them until they are signed.
+      - name: Releases cannot be signed in this repository
+        if: github.event.repository.visibility != 'public' && vars.ATTESTATIONS != 'on'
+        run: |
+          msg="Not signed: GitHub does not sign builds of private repositories owned by a user. The image is published, but containers will refuse to auto-update to it. Make the repository public (or use an Enterprise Cloud organisation and set ATTESTATIONS=on)."
+          echo "::warning title=Release not signed::$msg"
+          echo "### ⚠️ Release not signed" >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
       - name: Sign the file list
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS == 'on'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: integrity.json
       - name: Sign the image
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS == 'on'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.files.outputs.image }}
