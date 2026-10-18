@@ -3,15 +3,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { config, publicSettings, saveSettings } from './config.js';
+import { config, publicSettings, publicBranding, saveSettings } from './config.js';
 import * as store from './store.js';
 import * as samples from './samples.js';
+import * as profiles from './profiles.js';
 import * as auth from './admin-auth.js';
 import { audit, recentAudit } from './audit.js';
 import { validateRegistration, isEmail } from './validation.js';
-import { runScan, resumeInFlight, reuseSampleScan } from './scanRunner.js';
-import { send, inviteEmail, resultsLink } from './mailer.js';
+import { prepareScan, startScan, runScan, resumeInFlight, reuseSampleScan } from './scanRunner.js';
+import { send, inviteEmail, fixesEmail, resultsLink, verifySmtp } from './mailer.js';
 import { testConnection, scanUiUrl } from './checkmarx.js';
+import { parseEnvText, settingsFromEnv, isSecretVariable } from './env-import.js';
+import * as assist from './assist.js';
+import * as cities from './cities.js';
 import { IntegrityService } from './integrity/service.js';
 import { UpdateService } from './updates/service.js';
 import { VersionStore } from './updates/store.js';
@@ -28,19 +32,10 @@ const MAX_INVITES = 25;
 const supervised = process.env.CHECKMATE_SUPERVISOR === '1';
 const githubToken = process.env.GITHUB_READ_TOKEN || '';
 
-export const integrity = new IntegrityService({
-  appDir,
-  dataDir: config.dataDir,
-  token: githubToken,
-  record: (e) => audit({ type: 'integrity', ...e }),
-});
+export const integrity = new IntegrityService({ appDir, dataDir: config.dataDir, token: githubToken, record: (e) => audit({ type: 'integrity', ...e }) });
 
 export const updates = new UpdateService({
-  store: new VersionStore({
-    dataDir: config.dataDir,
-    builtInDir: process.env.CHECKMATE_BUILTIN_DIR || appDir,
-    builtInVersion: process.env.CHECKMATE_BUILTIN_VERSION || config.version,
-  }),
+  store: new VersionStore({ dataDir: config.dataDir, builtInDir: process.env.CHECKMATE_BUILTIN_DIR || appDir, builtInVersion: process.env.CHECKMATE_BUILTIN_VERSION || config.version }),
   runningVersion: config.version,
   image: process.env.UPDATE_IMAGE || DEFAULT_IMAGE,
   token: process.env.UPDATE_REGISTRY_TOKEN || githubToken,
@@ -51,11 +46,11 @@ export const updates = new UpdateService({
   switchTo: (message) => process.send?.(message),
 });
 
-/** A copy of the small state files (settings, samples, admin) before a version switch. */
+/** A copy of the small state files before a version switch. */
 function backup(reason) {
   const dir = path.join(config.dataDir, 'backups', `${new Date().toISOString().replace(/[:.]/g, '-')}-${reason}`);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-  for (const name of ['settings.json', 'samples.json', 'admin.json']) {
+  for (const name of ['settings.json', 'samples.json', 'admin.json', 'profiles.json']) {
     const from = path.join(config.dataDir, name);
     if (fs.existsSync(from)) fs.copyFileSync(from, path.join(dir, name));
   }
@@ -70,7 +65,7 @@ function backup(reason) {
 export const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', config.trustProxy);
-app.use(express.json({ limit: '100kb' }));
+app.use(express.json({ limit: '6mb' }));
 
 let draining = false;
 app.use((req, res, next) => {
@@ -85,13 +80,14 @@ app.use((req, res, next) => {
     'Cross-Origin-Opener-Policy': 'same-origin',
     // Geolocation only for this page: it picks the city theme, in the browser.
     'Permissions-Policy': 'camera=(), microphone=(), geolocation=(self)',
-    'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    // img-src https: for a logo given as an https address (Settings → Branding).
+    'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
   });
   if (req.secure) res.set('Strict-Transport-Security', 'max-age=31536000');
   if (req.path.startsWith('/api/')) res.set('Cache-Control', 'no-store');
   next();
 });
-app.use(express.static(publicDir, { index: false }));
+app.use(express.static(publicDir, { index: false, maxAge: '1h' }));
 
 // --- tiny per-IP rate limiter ------------------------------------------------
 const hits = new Map();
@@ -117,10 +113,7 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 function authorised(req, res) {
   const session = store.load(req.params.id);
   const key = String(req.query.k ?? req.body?.k ?? '');
-  const ok =
-    session &&
-    key.length === session.accessKey.length &&
-    crypto.timingSafeEqual(Buffer.from(key), Buffer.from(session.accessKey));
+  const ok = session && key.length === session.accessKey.length && crypto.timingSafeEqual(Buffer.from(key), Buffer.from(session.accessKey));
   if (!ok) {
     res.status(404).json({ error: 'Session not found' });
     return null;
@@ -131,17 +124,19 @@ function authorised(req, res) {
 function publicView(s, { admin = false } = {}) {
   const { accessKey, cx, ...rest } = s;
   // Tenant identifiers and links are for the booth team, not visitors.
-  const scan = cx ? { status: cx.status, engines: cx.engines, branch: cx.branch, demo: cx.demo } : undefined;
+  const scan = cx ? { status: cx.status, engines: cx.engines, branch: cx.branch, demo: cx.demo, config: cx.config } : undefined;
   return {
     ...rest,
     cx: admin ? { ...cx, url: cx?.projectId && !cx.demo ? scanUiUrl(cx.projectId, cx.scanId) : undefined } : scan,
     mode: config.mode,
-    eventName: config.eventName,
+    eventName: config.event.name,
+    assistEnabled: config.assist.enabled,
+    assistScopes: s.stage === 'complete' ? assist.scopeCounts(s) : undefined,
   };
 }
 
 async function inviteAll(session, invitees) {
-  const inviter = session.technical;
+  const inviter = session.technical?.email ? session.technical : session.customer;
   const results = [];
   for (const invitee of invitees) {
     try {
@@ -169,8 +164,8 @@ function newSession(fields) {
     id: crypto.randomUUID(),
     accessKey: crypto.randomBytes(24).toString('base64url'),
     createdAt: new Date().toISOString(),
-    stage: 'queued',
-    timeline: [{ stage: 'queued', at: new Date().toISOString() }],
+    stage: 'options',
+    timeline: [{ stage: 'options', at: new Date().toISOString() }],
     team: [],
     ...fields,
   });
@@ -182,16 +177,42 @@ function newSession(fields) {
 app.get('/api/health', (req, res) => res.json({ ok: true, version: config.version, integrity: integrity.last?.state ?? 'pending' }));
 
 app.get('/api/config', (req, res) =>
-  res.json({ eventName: config.eventName, mode: config.mode, version: config.version, samples: samples.publicList(), defaultCity: config.defaultCity, askLocation: config.askLocation }),
+  res.json({
+    eventName: config.event.name,
+    mode: config.mode,
+    version: config.version,
+    samples: samples.publicList(),
+    defaultCity: config.defaultCity,
+    askLocation: config.askLocation,
+    branding: publicBranding(),
+    cityPhotos: cities.publicList(),
+    profilesLookup: config.profiles.lookup,
+    profilesMinChars: config.profiles.minChars,
+    connected: Boolean(config.connection) || config.mode === 'demo',
+    tenantRegion: config.connection?.regionLabel ?? '',
+  }),
 );
 
-app.post('/api/sessions', rateLimit(10, 60 * 60 * 1000, 'register'), wrap(async (req, res) => {
+/** Type-ahead: who are you? Names and companies only; addresses come with the pick. */
+app.get('/api/profiles/search', rateLimit(240, 60 * 1000, 'profile-search'), (req, res) => {
+  if (!config.profiles.lookup) return res.json([]);
+  res.json(profiles.search(String(req.query.q ?? '').slice(0, 80)));
+});
+app.get('/api/profiles/:id/pick', rateLimit(60, 60 * 1000, 'profile-pick'), (req, res) => {
+  if (!config.profiles.lookup) return res.status(404).json({ error: 'Not available' });
+  const p = profiles.forRegistration(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  res.json(p);
+});
+
+app.post('/api/sessions', rateLimit(15, 60 * 60 * 1000, 'register'), wrap(async (req, res) => {
   const { value, errors } = validateRegistration(req.body, { getSample: samples.get });
   if (errors) return res.status(400).json({ errors });
 
   const session = newSession({
     kind: value.sampleId ? 'sample' : 'customer',
     sampleId: value.sampleId,
+    profileId: value.profileId,
     customer: value.customer,
     technical: value.technical,
     repo: value.repo,
@@ -200,10 +221,15 @@ app.post('/api/sessions', rateLimit(10, 60 * 60 * 1000, 'register'), wrap(async 
     team: value.pocs.map((p) => ({ ...p, delivery: 'not-invited' })),
   });
   audit({ type: 'registration', outcome: 'info', reason: `${value.customer.email} registered ${value.repo.url}${value.sampleId ? ' (sample)' : ''}` });
+  try {
+    profiles.rememberRegistration(value);
+  } catch (e) {
+    console.warn(`Profile not remembered: ${e.message}`);
+  }
 
-  // A sample with a recent scan is shown at once; anything else is scanned now.
+  // A sample with a recent scan is shown at once; anything else goes to the scan-profile step.
   const reusable = value.sampleId && samples.reusable(samples.get(value.sampleId));
-  if (!(reusable && reuseSampleScan(session.id, reusable.sessionId))) runScan(session.id);
+  if (!(reusable && reuseSampleScan(session.id, reusable.sessionId))) prepareScan(session.id);
 
   if (req.body.inviteNow !== false) {
     inviteAll(session, value.pocs).then((results) => store.update(session.id, (s) => mergeInvites(s, results)));
@@ -211,7 +237,7 @@ app.post('/api/sessions', rateLimit(10, 60 * 60 * 1000, 'register'), wrap(async 
   if (config.smtp.notify) {
     send({
       to: config.smtp.notify,
-      subject: `[${config.eventName}] New registration: ${value.customer.name} — ${value.repo.owner}/${value.repo.repo}`,
+      subject: `[${config.event.name}] New registration: ${value.customer.name} — ${value.repo.owner}/${value.repo.repo}`,
       text: `${value.customer.name} <${value.customer.email}> ${value.customer.company ? `(${value.customer.company})` : ''}\nTechnical: ${value.technical.name} <${value.technical.email}>\nOps contacts: ${value.pocs.map((p) => `${p.name} <${p.email}>`).join(', ')}\nRepo: ${value.repo.url}\nResults: ${resultsLink(session)}`,
     }).catch(() => {});
   }
@@ -224,20 +250,32 @@ app.get('/api/sessions/:id', (req, res) => {
   if (session) res.json(publicView(session, { admin: auth.isAdmin(req) }));
 });
 
+/** The visitor's scan profile: engines, Fusion, the LLM model, the preset. */
+app.post('/api/sessions/:id/start', wrap(async (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  if (session.stage !== 'profile') return res.status(409).json({ error: 'This scan has already started.' });
+  const choice = {
+    engines: Array.isArray(req.body.engines) ? req.body.engines.map(String).slice(0, 10) : undefined,
+    fusion: typeof req.body.fusion === 'boolean' ? req.body.fusion : undefined,
+    llmModel: typeof req.body.llmModel === 'string' ? req.body.llmModel.slice(0, 40) : undefined,
+    presetName: typeof req.body.presetName === 'string' ? req.body.presetName.slice(0, 120) : undefined,
+  };
+  const updated = startScan(session.id, choice);
+  audit({ type: 'scan', outcome: 'info', reason: `Scan started for ${session.repo.url}: ${updated.profile.engines.join(', ')}${updated.profile.fusion ? `, Fusion (${updated.profile.llmModel || 'default model'})` : ''}` });
+  res.json(publicView(updated));
+}));
+
 app.post('/api/sessions/:id/invites', rateLimit(30, 60 * 60 * 1000, 'invite'), wrap(async (req, res) => {
   const session = authorised(req, res);
   if (!session) return;
   const raw = Array.isArray(req.body.invitees) ? req.body.invitees : [];
   const invitees = raw
-    .map((i) => ({
-      name: String(i?.name ?? '').trim().slice(0, 120),
-      email: String(i?.email ?? '').trim().toLowerCase().slice(0, 254),
-      role: String(i?.role ?? '').trim().slice(0, 60),
-    }))
+    .map((i) => ({ name: String(i?.name ?? '').trim().slice(0, 120), email: String(i?.email ?? '').trim().toLowerCase().slice(0, 254), role: String(i?.role ?? '').trim().slice(0, 60) }))
     .filter((i) => i.email);
   const bad = invitees.filter((i) => !isEmail(i.email));
   if (!invitees.length || bad.length) return res.status(400).json({ error: `Please enter valid email addresses${bad.length ? `: ${bad.map((b) => b.email).join(', ')}` : ''}.` });
-  if (!session.technical) return res.status(400).json({ error: 'Invitations are not available for this scan.' });
+  if (!session.customer?.email) return res.status(400).json({ error: 'Invitations are not available for this scan.' });
 
   const known = new Set((session.team ?? []).map((t) => t.email));
   const newOnes = invitees.filter((i) => !known.has(i.email)).length;
@@ -246,6 +284,47 @@ app.post('/api/sessions/:id/invites', rateLimit(30, 60 * 60 * 1000, 'invite'), w
   const results = await inviteAll(session, invitees);
   const updated = store.update(session.id, (s) => mergeInvites(s, results));
   res.json({ team: updated.team, results });
+}));
+
+// --- Closing the loop: AI Triage and AI Remediation, one click each ------------
+const assistScope = (req) => (assist.SCOPES[req.body?.scope] ? req.body.scope : 'fusion');
+app.post('/api/sessions/:id/assist/triage', rateLimit(30, 60 * 60 * 1000, 'assist'), (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  if (!config.assist.enabled) return res.status(404).json({ error: 'AI assist is switched off.' });
+  try {
+    res.status(202).json(publicView(assist.startTriage(session.id, assistScope(req))));
+  } catch (e) {
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+app.post('/api/sessions/:id/assist/remediate', rateLimit(30, 60 * 60 * 1000, 'assist'), (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  if (!config.assist.enabled) return res.status(404).json({ error: 'AI assist is switched off.' });
+  try {
+    res.status(202).json(publicView(assist.startRemediation(session.id, assistScope(req))));
+  } catch (e) {
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+/** The fixes, as a developer brief, to the technical owner (and anyone else named). */
+app.post('/api/sessions/:id/assist/send', rateLimit(20, 60 * 60 * 1000, 'assist-send'), wrap(async (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  const list = assist.fixes(session);
+  if (!list.length) return res.status(400).json({ error: 'There are no fixes to send yet.' });
+  const extra = Array.isArray(req.body?.to) ? req.body.to.map((e) => String(e).trim().toLowerCase()).filter(isEmail).slice(0, 10) : [];
+  const to = [...new Set([session.technical?.email, ...extra].filter(Boolean))];
+  if (!to.length) return res.status(400).json({ error: 'No developer address to send to.' });
+  const results = [];
+  for (const addr of to) {
+    try { await send(fixesEmail({ session, to: addr, fixes: list })); results.push({ to: addr, ok: true }); }
+    catch (e) { results.push({ to: addr, ok: false, error: e.message }); }
+  }
+  const updated = store.update(session.id, (s) => { s.assist ??= {}; (s.assist.sent ??= []).push({ at: new Date().toISOString(), to, count: list.length, ok: results.every((r) => r.ok) }); });
+  audit({ type: 'assist', outcome: 'info', reason: `Fixes for ${session.repo.url} sent to ${to.join(', ')} (${list.length})` });
+  res.json({ results, assist: updated.assist });
 }));
 
 // ---------------------------------------------------------------------------
@@ -284,6 +363,7 @@ admin.post('/password', (req, res) => {
   res.json({ ok: true });
 });
 
+// --- settings, branding, .env import -----------------------------------------
 admin.get('/settings', (req, res) => res.json(publicSettings()));
 admin.put('/settings', (req, res) => {
   const result = saveSettings(req.body);
@@ -298,7 +378,62 @@ admin.post('/settings/test', wrap(async (req, res) => {
     res.status(502).json({ ok: false, error: e.message });
   }
 }));
+admin.post('/settings/test-smtp', wrap(async (req, res) => {
+  try {
+    const result = await verifySmtp();
+    if (isEmail(req.body?.to)) await send({ to: req.body.to, subject: `${config.event.name}: test email`, text: 'The mail server is set up correctly.', html: '<p>The mail server is set up correctly.</p>' });
+    res.json(result);
+  } catch (e) {
+    res.status(502).json({ ok: false, error: e.message });
+  }
+}));
 
+/** Configure from an uploaded .env file (as in CxMissionZero): applied, then the connection is checked. */
+admin.post('/settings/import-env', wrap(async (req, res) => {
+  let vars;
+  try {
+    vars = parseEnvText(req.body?.text);
+  } catch (e) {
+    return res.status(e.status ?? 400).json({ error: e.message });
+  }
+  const { patch, applied, ignored } = settingsFromEnv(vars);
+  if (!applied.length) return res.status(400).json({ error: 'No setting this page understands was found in that file (or every value was blank).', applied, ignored });
+  const result = saveSettings(patch);
+  if (result.errors) return res.status(400).json({ error: `Some values are not valid: ${Object.entries(result.errors).map(([k, v]) => `${k}: ${v}`).join('; ')}`, errors: result.errors, applied, ignored });
+  audit({ type: 'settings', outcome: 'changed', reason: `Settings imported from a .env file: ${applied.join(', ')}`, details: { applied, ignored, secrets: applied.filter(isSecretVariable) } });
+  const check = { cxone: null, smtp: null };
+  if (config.checkmarx.apiKey && config.mode === 'live') check.cxone = await testConnection().then((r) => ({ ok: true, ...r })).catch((e) => ({ ok: false, error: e.message }));
+  else if (config.checkmarx.apiKey) check.cxone = config.connection ? { ok: true, tenant: config.connection.tenant, region: config.connection.regionLabel, note: 'Key accepted; switch Mode to live to use it.' } : { ok: false, error: config.connectionError };
+  if (config.smtp.host) check.smtp = await verifySmtp().then(() => ({ ok: true })).catch((e) => ({ ok: false, error: e.message }));
+  res.json({ applied, ignored, check, settings: publicSettings() });
+}));
+
+// --- city photography ---------------------------------------------------------
+admin.get('/cities', (req, res) => res.json(cities.publicList()));
+admin.post('/cities/:city/fetch', wrap(async (req, res) => {
+  try {
+    const r = await cities.fetchFromCommons(req.params.city, { count: Number(req.body?.count) || 3 });
+    audit({ type: 'branding', outcome: 'changed', reason: `City photos fetched for ${req.params.city}: ${r.added} added` });
+    res.json({ ...r, photos: cities.publicList() });
+  } catch (e) {
+    res.status(e.status ?? 502).json({ error: e.message });
+  }
+}));
+admin.post('/cities/:city/photos', (req, res) => {
+  try {
+    cities.upload(req.params.city, req.body?.dataUrl, req.body?.credit);
+    audit({ type: 'branding', outcome: 'changed', reason: `City photo uploaded for ${req.params.city}` });
+    res.status(201).json(cities.publicList());
+  } catch (e) {
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+admin.delete('/cities/:city/photos/:n', (req, res) => {
+  if (!cities.remove(req.params.city, req.params.n)) return res.status(404).json({ error: 'Not found' });
+  res.json(cities.publicList());
+});
+
+// --- samples -----------------------------------------------------------------
 admin.get('/samples', (req, res) => res.json(samples.list()));
 admin.post('/samples', (req, res) => {
   const { sample, errors } = samples.create(req.body);
@@ -310,27 +445,55 @@ admin.put('/samples/:id', (req, res) => {
   const { sample, errors, notFound } = samples.update(req.params.id, req.body);
   if (notFound) return res.status(404).json({ error: 'Not found' });
   if (errors) return res.status(400).json({ errors });
-  audit({ type: 'samples', outcome: 'changed', reason: `Sample updated: ${sample.url}` });
   res.json(sample);
 });
 admin.delete('/samples/:id', (req, res) => {
   if (!samples.remove(req.params.id)) return res.status(404).json({ error: 'Not found' });
-  audit({ type: 'samples', outcome: 'changed', reason: `Sample removed: ${req.params.id}` });
   res.json({ ok: true });
 });
-admin.post('/samples/:id/scan', (req, res) => {
+admin.post('/samples/:id/scan', wrap(async (req, res) => {
   const sample = samples.get(req.params.id);
   if (!sample) return res.status(404).json({ error: 'Not found' });
-  const repo = (({ url }) => {
-    const [, owner, name] = new URL(url).pathname.split('/');
-    return { owner, repo: name, url };
-  })(sample);
-  const session = newSession({ kind: 'sample-refresh', sampleId: sample.id, repo, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } });
-  runScan(session.id);
+  const [, owner, name] = new URL(sample.url).pathname.split('/');
+  const session = newSession({ kind: 'sample-refresh', sampleId: sample.id, repo: { owner, repo: name, url: sample.url }, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } });
+  await prepareScan(session.id);
+  startScan(session.id, {});
   audit({ type: 'samples', outcome: 'info', reason: `Scan started for sample ${sample.url}` });
   res.status(202).json({ id: session.id, url: `/s/${session.id}?k=${session.accessKey}` });
+}));
+
+// --- profiles ----------------------------------------------------------------
+admin.get('/profiles', (req, res) => res.json(profiles.list()));
+admin.get('/profiles.csv', (req, res) => {
+  res.set('Content-Type', 'text/csv; charset=utf-8');
+  res.set('Content-Disposition', `attachment; filename="checkmate-profiles-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(profiles.exportCsv());
+});
+admin.post('/profiles', (req, res) => {
+  const { profile, errors } = profiles.create(req.body);
+  if (errors) return res.status(400).json({ errors });
+  audit({ type: 'profiles', outcome: 'changed', reason: `Profile added: ${profile.email}` });
+  res.status(201).json(profile);
+});
+admin.post('/profiles/import', (req, res) => {
+  const result = profiles.importCsv(String(req.body?.text ?? '').slice(0, 2_000_000));
+  if (result.error) return res.status(400).json(result);
+  audit({ type: 'profiles', outcome: 'changed', reason: `Profiles imported: ${result.added} added, ${result.updated} updated, ${result.skipped.length} skipped` });
+  res.json(result);
+});
+admin.put('/profiles/:id', (req, res) => {
+  const { profile, errors, notFound } = profiles.update(req.params.id, req.body);
+  if (notFound) return res.status(404).json({ error: 'Not found' });
+  if (errors) return res.status(400).json({ errors });
+  res.json(profile);
+});
+admin.delete('/profiles/:id', (req, res) => {
+  if (!profiles.remove(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  audit({ type: 'profiles', outcome: 'changed', reason: `Profile removed: ${req.params.id}` });
+  res.json({ ok: true });
 });
 
+// --- registrations -----------------------------------------------------------
 admin.get('/sessions', (req, res) => {
   const all = store
     .listAll()
@@ -346,8 +509,10 @@ admin.get('/sessions', (req, res) => {
       repo: s.repo?.url,
       branch: s.branch,
       theme: s.theme ?? null,
+      profile: s.profile ?? null,
       fusionOnly: s.summary?.fusionOnly ?? null,
       total: s.summary?.total ?? null,
+      exposure: s.outcome?.exposure ?? null,
       reused: Boolean(s.reusedFrom),
       link: `/s/${s.id}?k=${s.accessKey}`,
       cxUrl: s.cx?.projectId && !s.cx.demo ? scanUiUrl(s.cx.projectId, s.cx.scanId) : null,
@@ -358,17 +523,27 @@ admin.get('/sessions', (req, res) => {
 
 admin.get('/sessions.csv', (req, res) => {
   const esc = (v) => `"${String(v ?? '').replace(/"/g, '""').replace(/^([=+\-@])/, "'$1")}"`;
-  const rows = [['Created', 'Name', 'Email', 'Company', 'Technical name', 'Technical email', 'Team', 'Repository', 'Stage', 'Fusion only', 'Total findings']];
+  const rows = [['Created', 'Name', 'Email', 'Company', 'Title', 'Technical name', 'Technical email', 'Team', 'Repository', 'Stage', 'Fusion only', 'Total findings', 'Exposure']];
   for (const s of store.listAll().filter((x) => x.kind !== 'sample-refresh')) {
-    rows.push([s.createdAt, s.customer?.name, s.customer?.email, s.customer?.company, s.technical?.name, s.technical?.email, (s.team ?? []).map((t) => `${t.name} <${t.email}>`).join('; '), s.repo?.url, s.stage, s.summary?.fusionOnly, s.summary?.total]);
+    rows.push([s.createdAt, s.customer?.name, s.customer?.email, s.customer?.company, s.customer?.title, s.technical?.name, s.technical?.email, (s.team ?? []).map((t) => `${t.name} <${t.email}>`).join('; '), s.repo?.url, s.stage, s.summary?.fusionOnly, s.summary?.total, s.outcome?.exposure?.band]);
   }
   res.set('Content-Type', 'text/csv; charset=utf-8');
   res.set('Content-Disposition', `attachment; filename="checkmate-registrations-${new Date().toISOString().slice(0, 10)}.csv"`);
   res.send(rows.map((r) => r.map(esc).join(',')).join('\r\n'));
 });
 
+admin.post('/sessions/:id/rescan', (req, res) => {
+  const session = store.load(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Not found' });
+  if (!['complete', 'error'].includes(session.stage)) return res.status(409).json({ error: 'A scan is already running for this registration.' });
+  store.update(session.id, (s) => { s.stage = 'options'; s.error = undefined; });
+  prepareScan(session.id).then(() => startScan(session.id, session.profile ?? {}));
+  res.status(202).json({ ok: true });
+});
+
 admin.get('/audit', (req, res) => res.json(recentAudit(200)));
 
+// --- updates & integrity -----------------------------------------------------
 admin.get('/updates', (req, res) => res.json({ ...updates.status(), integrity: integrity.last }));
 admin.post('/updates/check', wrap(async (req, res) => res.json({ ...(await updates.check()), integrity: integrity.last })));
 admin.post('/updates/install', (req, res) => {
@@ -409,11 +584,28 @@ app.use('/api/admin', admin);
 // ---------------------------------------------------------------------------
 app.get(['/', '/s/:id'], (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(publicDir, 'admin.html')));
+app.get('/city-photos/:city/:n', (req, res) => {
+  const f = cities.file(req.params.city, req.params.n);
+  if (!f) return res.status(404).end();
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.type(f.type).sendFile(f.path);
+});
+/** The browser tab's icon: the uploaded one, or Checkmate's own. */
+app.get('/app-icon', (req, res) => {
+  const icon = config.branding.iconUrl;
+  const m = /^data:(image\/[a-z.+-]+);base64,(.+)$/i.exec(icon || '');
+  if (m) {
+    res.set('Content-Type', m[1]);
+    return res.send(Buffer.from(m[2], 'base64'));
+  }
+  if (/^https:/i.test(icon)) return res.redirect(icon);
+  res.sendFile(path.join(publicDir, 'favicon.svg'));
+});
 
 app.use((err, req, res, next) => {
   console.error(err);
   if (res.headersSent) return next(err);
-  res.status(500).json({ error: 'Something went wrong.' });
+  res.status(err.status && err.status < 500 ? err.status : 500).json({ error: err.status && err.status < 500 ? err.message : 'Something went wrong.' });
 });
 
 // ---------------------------------------------------------------------------
@@ -422,12 +614,19 @@ app.use((err, req, res, next) => {
 export function start() {
   fs.mkdirSync(config.dataDir, { recursive: true });
   auth.ensureAdmin();
-  samples.list(); // seeds the defaults on first start
+  samples.list();
+  if (config.mode === 'demo') {
+    const n = profiles.seedDemo();
+    if (n) console.log(`Demo mode: ${n} fictional profiles added so the type-ahead can be rehearsed (admin → Profiles).`);
+  }
   resumeInFlight();
+  assist.resumeAssist();
+  if (config.cities.autoFetch) cities.autoFetch();
 
   const server = app.listen(config.port, config.host, () => {
-    console.log(`Checkmate v${config.version} running on http://${config.host}:${config.port} (mode: ${config.mode}${supervised ? ', launcher' : ''})`);
-    if (!config.anthropic.enabled) console.log('No Anthropic API key: using built-in plain-language explanations.');
+    console.log(`${config.branding.appName} v${config.version} running on http://${config.host}:${config.port} (mode: ${config.mode}${supervised ? ', launcher' : ''})`);
+    if (config.mode === 'live' && !config.connection) console.log(`Checkmarx One is not connected: ${config.connectionError || 'paste the API key under /admin → Settings, or upload a .env file.'}`);
+    if (config.connection) console.log(`Checkmarx One: tenant ${config.connection.tenant} (${config.connection.regionLabel}).`);
     if (!config.smtp.host) console.log(`SMTP not configured: emails are written to ${config.dataDir}/outbox.`);
     process.send?.({ type: 'ready' });
   });
@@ -438,7 +637,6 @@ export function start() {
   setTimeout(tick, 60_000).unref();
   setInterval(tick, minutes * 60_000).unref();
 
-  // Stop cleanly (update, restart, docker stop): finish requests, then exit.
   const stop = (signal) => {
     if (draining) return;
     draining = true;

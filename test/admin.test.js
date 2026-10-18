@@ -22,8 +22,12 @@ test('Checkmarx One credentials only go to https addresses on checkmarx.net', ()
 
 test('settings: validated, secrets never returned, blank secret keeps the stored one', () => {
   assert.ok(saveSettings({ 'checkmarx.baseUrl': 'https://attacker.example.com' }).errors['checkmarx.baseUrl']);
-  assert.equal(config.checkmarx.baseUrl, 'https://ast.checkmarx.net');
-  assert.ok(saveSettings({ 'checkmarx.apiKey': 'secret-key', 'checkmarx.tenant': 'acme', mode: 'live' }).ok);
+  assert.equal(config.checkmarx.baseUrl, '', 'nothing is stored when a value is refused');
+  // A key that is not a Checkmarx One JWT is kept but reported as unusable (the connection is derived from the key).
+  const saved = saveSettings({ 'checkmarx.apiKey': 'secret-key', 'checkmarx.tenant': 'acme', mode: 'live' });
+  assert.ok(saved.ok);
+  assert.ok(saved.connectionError, 'a non-JWT key cannot yield a connection');
+  assert.equal(config.connection, null);
   assert.deepEqual(publicSettings()['checkmarx.apiKey'], { set: true });
   assert.ok(!JSON.stringify(publicSettings()).includes('secret-key'));
   saveSettings({ 'checkmarx.apiKey': '' });

@@ -4,10 +4,15 @@ import { classify, isFusionResult, normalize, sameIssue } from '../src/fusion.js
 import { demoResults } from '../src/demo.js';
 import { buildScanConfig } from '../src/checkmarx.js';
 
-test('detects Fusion results by type or engine field', () => {
+test('detects Fusion results: the verified fingerprint (queryId 0, CWE-title query, LANG_SEVERITY group), or a marker', () => {
   assert.equal(isFusionResult({ type: 'fusion' }), true);
   assert.equal(isFusionResult({ type: 'sast', data: { engine: 'Fusion' } }), true);
+  // As seen on the tenant (project "Fusion Hub"): no description, queryId 0, group TSX_HIGH.
+  assert.equal(isFusionResult({ type: 'sast', description: '', data: { queryId: 0, queryName: 'Improper Input Validation', group: 'TSX_HIGH' } }), true);
+  // Classic SAST: a 64-bit queryId and a group like JavaScript_Low_Visibility.
+  assert.equal(isFusionResult({ type: 'sast', data: { queryId: 7634211052344960000, queryName: 'Reflected_XSS_All_Clients', group: 'JavaScript_High_Risk' } }), false);
   assert.equal(isFusionResult({ type: 'sast', data: {} }), false);
+  assert.equal(isFusionResult({ type: 'sast', data: { queryId: 0, queryName: 'Improper Input Validation', group: 'TSX_HIGH' } }, { queryIdZero: false, markers: ['fusion'] }), false);
 });
 
 test('normalizes SAST, SCA and KICS results', () => {
@@ -36,7 +41,10 @@ test('classify puts Fusion-only findings first and flags corroborated ones', () 
   const raw = demoResults();
   // fus-005 reports the SQL injection at its sink (products.js:23); SAST reports the same flow from its source.
   const { fusionOnly, others, summary } = classify(raw);
-  assert.deepEqual(fusionOnly.map((f) => f.id), ['fus-001', 'fus-003', 'fus-002', 'fus-004']); // severity, then title
+  // Severity first; within a severity the order is stable.
+  assert.deepEqual(fusionOnly.map((f) => f.severity), ['CRITICAL', 'HIGH', 'HIGH', 'MEDIUM']);
+  assert.equal(fusionOnly[0].id, 'fus-001');
+  assert.equal(fusionOnly.at(-1).id, 'fus-004');
   assert.ok(fusionOnly.every((f) => f.fusionOnly));
   assert.equal(others.find((f) => f.id === 'sast-001').confirmedByFusion, true);
   assert.equal(summary.fusionOnly, 4);
@@ -45,9 +53,15 @@ test('classify puts Fusion-only findings first and flags corroborated ones', () 
   assert.equal(others[0].severity, 'HIGH');
 });
 
-test('scan config merges Fusion settings into engine entries', () => {
-  const cfg = buildScanConfig();
-  assert.ok(cfg.find((c) => c.type === 'sast'));
+test('scan config: engines, the ai entry for Fusion and the tenant-verified keys', () => {
+  const cfg = buildScanConfig({ engines: ['sast', 'sca'], fusion: true, llmModel: 'opus-5.5', presetName: 'ASA Premium', extendedAnalysis: true });
+  const sast = cfg.find((c) => c.type === 'sast');
+  assert.deepEqual(sast.value, { incremental: 'false', presetName: 'ASA Premium', extendedAnalysis: 'true' });
+  assert.ok(cfg.find((c) => c.type === 'sca'));
+  assert.deepEqual(cfg.find((c) => c.type === 'ai').value, { fusionEnabled: 'true', llmModel: 'opus-5.5' });
+  const off = buildScanConfig({ engines: ['sast'], fusion: false, extendedAnalysis: false });
+  assert.equal(off.find((c) => c.type === 'ai'), undefined);
+  assert.deepEqual(off.find((c) => c.type === 'sast').value, { incremental: 'false' });
 });
 
 test('template explanations fit the finding type', async () => {
@@ -55,6 +69,10 @@ test('template explanations fit the finding type', async () => {
   const { fusionOnly } = classify(demoResults());
   const reset = fusionOnly.find((f) => f.id === 'fus-003');
   const ex = templateExplanation(reset);
-  assert.match(ex.whatItMeans, /prove who they are/);
+  // Fusion's own account of the finding is used as "what it means" when the result carries one.
+  assert.equal(ex.whatItMeans, reset.fusionInsight);
   assert.ok(ex.whyFusionFoundIt.length > 20);
+  assert.match(ex.businessImpact, /account takeover/i);
+  const noInsight = templateExplanation({ ...reset, fusionInsight: '' });
+  assert.match(noInsight.whatItMeans, /prove who they are/);
 });

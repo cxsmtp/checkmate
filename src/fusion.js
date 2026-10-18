@@ -24,12 +24,28 @@ function engineOf(type) {
   return t || 'sast';
 }
 
-/** True when a raw Checkmarx One result was produced by the Fusion engine. */
-export function isFusionResult(raw, markers = config.fusion.markers) {
+/**
+ * True when a raw Checkmarx One result was produced by Fusion (the LLM-based engine).
+ *
+ * Verified on a real tenant (project "Fusion Hub", scan 6324d8fd…): Fusion's findings
+ * arrive in /api/results as type "sast" but with `data.queryId === 0`, a CWE title as
+ * the query name ("Improper Input Validation") instead of a query id ("SQL_Injection"),
+ * a group of the form <Language>_<SEVERITY> and no description. Classic SAST results
+ * have a 64-bit queryId and a group like "JavaScript_Low_Visibility".
+ * Any explicit marker (a type or engine field naming fusion / ai-sast) also counts.
+ */
+export function isFusionResult(raw, { markers = config.fusion.markers, queryIdZero = config.fusion.queryIdZero } = {}) {
   const d = raw?.data ?? {};
   const fields = [raw?.type, raw?.source, raw?.engine, raw?.origin, d.engine, d.source, d.detectionEngine, d.detectionMethod, d.resultSource];
   const hay = fields.map((f) => str(f).toLowerCase());
-  return markers.some((m) => hay.some((h) => h && h.includes(m)));
+  if (markers.some((m) => hay.some((h) => h && h.includes(m)))) return true;
+  if (queryIdZero && str(raw?.type).toLowerCase() === 'sast') {
+    const queryId = d.queryId;
+    const zero = queryId === 0 || queryId === '0';
+    const fusionGroup = /^[A-Za-z#+.]+_(CRITICAL|HIGH|MEDIUM|LOW|INFO)$/.test(str(d.group));
+    if (zero && (fusionGroup || !d.queryId)) return true;
+  }
+  return false;
 }
 
 /** Converts a Checkmarx One result into the flat shape the page renders. */
@@ -47,6 +63,8 @@ export function normalize(raw) {
   return {
     id: str(raw.id || raw.similarityId),
     similarityId: str(raw.similarityId),
+    // Checkmarx One AI Triage and AI Remediation are keyed by the result's alternateId.
+    alternateId: str(raw.alternateId),
     engine,
     engineLabel: ENGINE_LABEL[engine] ?? engine.toUpperCase(),
     underlyingType: str(raw.type),
@@ -65,6 +83,8 @@ export function normalize(raw) {
     packageName: str(d.packageIdentifier || ''),
     recommendedVersion: str(d.recommendedVersion || ''),
     description: str(raw.description || d.description || ''),
+    // Fusion's own account of what it determined, when the result carries one.
+    fusionInsight: str(raw.fusionInsight || d.fusionInsight || d.explanation || ''),
     expected: str(d.expectedValue || ''),
     actual: str(d.actualValue || ''),
     firstFoundAt: str(raw.firstFoundAt || raw.foundAt || ''),
