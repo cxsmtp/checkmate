@@ -13,7 +13,7 @@ Once it is set up, the booth machine needs no attention:
 1. **A published image.** The workflow publishes `ghcr.io/cxsmtp/checkmate` on every push to `main`. Create `main` from the current branch and let the **Container image** workflow finish (Actions tab).
 2. **Signed releases.** The container only installs updates signed by this repository's workflow. GitHub signs builds of a *private* repository only on GitHub Enterprise Cloud. Make the repository public, or move it to an Enterprise Cloud organisation. Otherwise every update is refused (Admin → Updates & integrity says why).
 3. **A token for the private image.** Create a GitHub personal access token (classic) with `read:packages`. Use it for `podman login` and in the env file as `UPDATE_REGISTRY_TOKEN` and `GITHUB_READ_TOKEN`.
-4. **Network.** The machine needs outbound HTTPS to `ghcr.io`, `pkg-containers.githubusercontent.com`, `api.github.com`, and your Checkmarx One host.
+4. **Network.** The machine needs outbound HTTPS to `ghcr.io`, `pkg-containers.githubusercontent.com`, `api.github.com`, your Checkmarx One host, and (for the city photographs) `commons.wikimedia.org` and `upload.wikimedia.org`.
 
 ## Linux: a systemd service (Quadlet), recommended
 
