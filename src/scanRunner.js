@@ -159,7 +159,9 @@ async function runDemo(session) {
     fusion = { ...demoFusion(scanId), status: 'completed' };
   }
   setStage(session.id, 'fetching-results');
-  const raw = demoResults().filter((r) => session.profile.fusion || !(r.type === 'sast' && r.data?.queryId === 0));
+  // Only what the chosen engines would report (secret detection belongs to the micro-engines).
+  const ran = new Set(session.profile.engines.map((e) => (e === 'microengines' ? 'sscs-secret-detection' : e)));
+  const raw = demoResults().filter((r) => (r.type === 'sast' && r.data?.queryId === 0 ? session.profile.fusion : ran.has(r.type)));
   return { raw, fusion, loc: 46_800 };
 }
 
@@ -173,7 +175,7 @@ export async function runScan(id, log = console) {
     const { fusionOnly, others, summary } = classify(raw);
     attachFusionCorrelation(fusionOnly, others, fusion);
     setStage(id, 'explaining', { summary });
-    explainFindings(fusionOnly, others);
+    explainFindings(fusionOnly, others, session.profile);
     const outcome = buildOutcome(fusionOnly, others, { profile: session.profile, repoName: `${session.repo.owner}/${session.repo.repo}` });
     outcome.correlation = { status: fusion.status, error: fusion.error, changed: fusion.riskScores.length, raised: fusion.riskScores.filter((r) => r.newRiskValue > r.oldRiskValue).length, lowered: fusion.riskScores.filter((r) => r.newRiskValue < r.oldRiskValue).length };
 

@@ -17,6 +17,9 @@ import { parseEnvText, settingsFromEnv, isSecretVariable } from './env-import.js
 import * as assist from './assist.js';
 import { impactSettings } from '../public/impact.js';
 import * as cities from './cities.js';
+import * as places from './places.js';
+import { scanOptions as tenantScanOptions } from './checkmarx.js';
+import { demoScanOptions } from './demo.js';
 import { IntegrityService } from './integrity/service.js';
 import { UpdateService } from './updates/service.js';
 import { VersionStore } from './updates/store.js';
@@ -196,6 +199,34 @@ app.get('/api/config', (req, res) =>
   }),
 );
 
+// --- Where the visitor is: any city in the world, its photos ------------------------
+app.get('/api/places/reverse', rateLimit(60, 60 * 1000, 'places'), wrap(async (req, res) => {
+  try { res.json(await places.reverse(req.query.lat, req.query.lon)); }
+  catch (e) { res.status(e.status ?? 502).json({ error: e.status ? e.message : 'The city could not be looked up right now.' }); }
+}));
+app.get('/api/places/search', rateLimit(60, 60 * 1000, 'places'), wrap(async (req, res) => {
+  try { res.json(await places.search(req.query.q)); }
+  catch { res.status(502).json({ error: 'Cities could not be searched right now.' }); }
+}));
+app.get('/api/places/:key/photos', rateLimit(60, 60 * 1000, 'place-photos'), wrap(async (req, res) => {
+  if (!places.isPlaceKey(req.params.key)) return res.status(400).json({ error: 'Not a city' });
+  const name = String(req.query.name ?? '').replace(/[^\p{L}\p{N} .'-]/gu, '').slice(0, 80);
+  res.json(config.cities.autoFetch ? await cities.ensure(req.params.key, name) : cities.photosFor(req.params.key));
+}));
+
+/** What a scan can run on this tenant (engines, Fusion, models), cached briefly: the details screen offers the model. */
+let optionsCache = { at: 0, live: null, value: null };
+app.get('/api/scan-options', wrap(async (req, res) => {
+  const live = isLive();
+  if (optionsCache.value && optionsCache.live === live && Date.now() - optionsCache.at < 5 * 60_000) return res.json(optionsCache.value);
+  let value;
+  try { value = live ? await tenantScanOptions() : demoScanOptions(); }
+  catch (e) { value = { ...demoScanOptions(), source: 'defaults', warning: e.message }; }
+  const out = { source: value.source, region: value.region, fusion: value.fusion, models: value.models, engines: value.engines.filter((e) => e.default) };
+  optionsCache = { at: Date.now(), live, value: out };
+  res.json(out);
+}));
+
 /** Type-ahead: who are you? Names and companies only; addresses come with the pick. */
 app.get('/api/profiles/search', rateLimit(240, 60 * 1000, 'profile-search'), (req, res) => {
   if (!config.profiles.lookup) return res.json([]);
@@ -221,6 +252,7 @@ app.post('/api/sessions', rateLimit(15, 60 * 60 * 1000, 'register'), wrap(async 
     repo: value.repo,
     branch: value.branch,
     theme: value.theme,
+    place: value.place,
     team: value.pocs.map((p) => ({ ...p, delivery: 'not-invited' })),
   });
   audit({ type: 'registration', outcome: 'info', reason: `${value.customer.email} registered ${value.repo.url}${value.sampleId ? ' (sample)' : ''}` });
@@ -231,8 +263,12 @@ app.post('/api/sessions', rateLimit(15, 60 * 60 * 1000, 'register'), wrap(async 
   }
 
   // A sample with a recent scan is shown at once; anything else goes to the scan-profile step.
+  // With the visitor's choice made on the same screen (the model), the scan starts at once.
   const reusable = value.sampleId && samples.reusable(samples.get(value.sampleId));
-  if (!(reusable && reuseSampleScan(session.id, reusable.sessionId))) prepareScan(session.id);
+  if (!(reusable && reuseSampleScan(session.id, reusable.sessionId))) {
+    const choice = scanChoice(req.body?.scan);
+    prepareScan(session.id).then((s) => { if (choice && s?.stage === 'profile') startScan(session.id, choice); }).catch((e) => console.warn(`Scan not started: ${e.message}`));
+  }
 
   if (req.body.inviteNow !== false) {
     inviteAll(session, value.pocs).then((results) => store.update(session.id, (s) => mergeInvites(s, results)));
@@ -253,18 +289,23 @@ app.get('/api/sessions/:id', (req, res) => {
   if (session) res.json(publicView(session, { admin: auth.isAdmin(req) }));
 });
 
+/** The visitor's scan choice, cleaned; null when none was sent (the scan-profile step then asks). */
+function scanChoice(body) {
+  if (!body || typeof body !== 'object') return null;
+  return {
+    engines: Array.isArray(body.engines) ? body.engines.map(String).slice(0, 10) : undefined,
+    fusion: typeof body.fusion === 'boolean' ? body.fusion : undefined,
+    llmModel: typeof body.llmModel === 'string' ? body.llmModel.slice(0, 40) : undefined,
+    presetName: typeof body.presetName === 'string' ? body.presetName.slice(0, 120) : undefined,
+  };
+}
+
 /** The visitor's scan profile: engines, Fusion, the LLM model, the preset. */
 app.post('/api/sessions/:id/start', wrap(async (req, res) => {
   const session = authorised(req, res);
   if (!session) return;
   if (session.stage !== 'profile') return res.status(409).json({ error: 'This scan has already started.' });
-  const choice = {
-    engines: Array.isArray(req.body.engines) ? req.body.engines.map(String).slice(0, 10) : undefined,
-    fusion: typeof req.body.fusion === 'boolean' ? req.body.fusion : undefined,
-    llmModel: typeof req.body.llmModel === 'string' ? req.body.llmModel.slice(0, 40) : undefined,
-    presetName: typeof req.body.presetName === 'string' ? req.body.presetName.slice(0, 120) : undefined,
-  };
-  const updated = startScan(session.id, choice);
+  const updated = startScan(session.id, scanChoice(req.body));
   audit({ type: 'scan', outcome: 'info', reason: `Scan started for ${session.repo.url}: ${updated.profile.engines.join(', ')}${updated.profile.fusion ? `, Fusion (${updated.profile.llmModel || 'default model'})` : ''}` });
   res.json(publicView(updated));
 }));
@@ -307,6 +348,16 @@ app.post('/api/sessions/:id/assist/remediate', rateLimit(30, 60 * 60 * 1000, 'as
   if (!config.assist.enabled) return res.status(404).json({ error: 'AI assist is switched off.' });
   try {
     res.status(202).json(publicView(assist.startRemediation(session.id, assistScope(req))));
+  } catch (e) {
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+});
+app.post('/api/sessions/:id/assist/fix', rateLimit(30, 60 * 60 * 1000, 'assist'), (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  if (!config.assist.enabled) return res.status(404).json({ error: 'AI assist is switched off.' });
+  try {
+    res.status(202).json(publicView(assist.startFixAll(session.id, assistScope(req))));
   } catch (e) {
     res.status(e.status ?? 500).json({ error: e.message });
   }
@@ -372,6 +423,7 @@ admin.put('/settings', (req, res) => {
   const result = saveSettings(req.body);
   if (result.errors) return res.status(400).json(result);
   audit({ type: 'settings', outcome: 'changed', reason: `Settings changed: ${Object.keys(req.body ?? {}).join(', ')}` });
+  prepareSamples().catch(() => {});
   res.json(publicSettings());
 });
 admin.post('/settings/test', wrap(async (req, res) => {
@@ -407,15 +459,16 @@ admin.post('/settings/import-env', wrap(async (req, res) => {
   const check = { cxone: null, smtp: null };
   if (config.checkmarx.apiKey && config.connection) check.cxone = await testConnection().then((r) => ({ ok: true, ...r })).catch((e) => ({ ok: false, error: e.message }));
   else if (config.checkmarx.apiKey) check.cxone = config.connection ? { ok: true, tenant: config.connection.tenant, region: config.connection.regionLabel, note: isLive() ? '' : 'Key accepted; Mode is set to demo.' } : { ok: false, error: config.connectionError };
+  prepareSamples().catch(() => {});
   if (config.smtp.host) check.smtp = await verifySmtp().then(() => ({ ok: true })).catch((e) => ({ ok: false, error: e.message }));
   res.json({ applied, ignored, check, settings: publicSettings() });
 }));
 
 // --- city photography ---------------------------------------------------------
-admin.get('/cities', (req, res) => res.json(cities.publicList()));
+admin.get('/cities', (req, res) => res.json({ photos: cities.publicList(), names: cities.names() }));
 admin.post('/cities/:city/fetch', wrap(async (req, res) => {
   try {
-    const r = await cities.fetchFromCommons(req.params.city, { count: Number(req.body?.count) || 3 });
+    const r = await cities.fetchFromCommons(req.params.city, { count: Number(req.body?.count) || 3, name: String(req.body?.name ?? '').slice(0, 80) });
     audit({ type: 'branding', outcome: 'changed', reason: `City photos fetched for ${req.params.city}: ${r.added} added` });
     res.json({ ...r, photos: cities.publicList() });
   } catch (e) {
@@ -424,7 +477,7 @@ admin.post('/cities/:city/fetch', wrap(async (req, res) => {
 }));
 admin.post('/cities/:city/photos', (req, res) => {
   try {
-    cities.upload(req.params.city, req.body?.dataUrl, req.body?.credit);
+    cities.upload(req.params.city, req.body?.dataUrl, req.body?.credit, String(req.body?.name ?? '').slice(0, 80));
     audit({ type: 'branding', outcome: 'changed', reason: `City photo uploaded for ${req.params.city}` });
     res.status(201).json(cities.publicList());
   } catch (e) {
@@ -442,13 +495,15 @@ admin.post('/samples', (req, res) => {
   const { sample, errors } = samples.create(req.body);
   if (errors) return res.status(400).json({ errors });
   audit({ type: 'samples', outcome: 'changed', reason: `Sample added: ${sample.url}` });
-  res.status(201).json(sample);
+  if (sample.enabled && config.samplesAutoScan) scanSample(sample).catch((err) => console.warn(`Sample ${sample.name}: ${err.message}`));
+  res.status(201).json(samples.get(sample.id));
 });
 admin.put('/samples/:id', (req, res) => {
   const { sample, errors, notFound } = samples.update(req.params.id, req.body);
   if (notFound) return res.status(404).json({ error: 'Not found' });
   if (errors) return res.status(400).json({ errors });
-  res.json(sample);
+  if (config.samplesAutoScan && samples.needsScan(sample)) scanSample(sample).catch((err) => console.warn(`Sample ${sample.name}: ${err.message}`));
+  res.json(samples.get(sample.id));
 });
 admin.delete('/samples/:id', (req, res) => {
   if (!samples.remove(req.params.id)) return res.status(404).json({ error: 'Not found' });
@@ -457,13 +512,40 @@ admin.delete('/samples/:id', (req, res) => {
 admin.post('/samples/:id/scan', wrap(async (req, res) => {
   const sample = samples.get(req.params.id);
   if (!sample) return res.status(404).json({ error: 'Not found' });
-  const [, owner, name] = new URL(sample.url).pathname.split('/');
-  const session = newSession({ kind: 'sample-refresh', sampleId: sample.id, repo: { owner, repo: name, url: sample.url }, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } });
-  await prepareScan(session.id);
-  startScan(session.id, {});
+  const session = await scanSample(sample, { force: true });
   audit({ type: 'samples', outcome: 'info', reason: `Scan started for sample ${sample.url}` });
   res.status(202).json({ id: session.id, url: `/s/${session.id}?k=${session.accessKey}` });
 }));
+
+/**
+ * Sample repositories keep their results ready: a scan starts as soon as one is added (or its
+ * repository changes), when the tenant connects, and when the results are older than the refresh
+ * window. One scan per sample at a time.
+ */
+async function scanSample(sample, { force = false } = {}) {
+  const running = sample.scanning?.sessionId && store.load(sample.scanning.sessionId);
+  if (!force && running && !['complete', 'error'].includes(running.stage)) return running;
+  const [, owner, name] = new URL(sample.url).pathname.split('/');
+  const session = newSession({ kind: 'sample-refresh', sampleId: sample.id, repo: { owner, repo: name, url: sample.url }, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } });
+  samples.markScanning(sample.id, session.id);
+  await prepareScan(session.id);
+  startScan(session.id, {});
+  return session;
+}
+
+export async function prepareSamples(log = console) {
+  if (!config.samplesAutoScan) return;
+  for (const sample of samples.list().filter((s) => samples.needsScan(s))) {
+    const running = sample.scanning?.sessionId && store.load(sample.scanning.sessionId);
+    if (running && !['complete', 'error'].includes(running.stage)) continue;
+    try {
+      await scanSample(sample);
+      log.log?.(`Sample ${sample.name}: scan started so its results are ready for visitors.`);
+    } catch (err) {
+      log.warn?.(`Sample ${sample.name}: could not start a scan: ${err.message}`);
+    }
+  }
+}
 
 // --- profiles ----------------------------------------------------------------
 admin.get('/profiles', (req, res) => res.json(profiles.list()));
@@ -625,10 +707,13 @@ export function start() {
   resumeInFlight();
   assist.resumeAssist();
   if (config.cities.autoFetch) cities.autoFetch();
+  // Sample repositories: results ready before the first visitor, refreshed in the background.
+  setTimeout(() => prepareSamples().catch(() => {}), 5_000).unref();
+  setInterval(() => prepareSamples().catch(() => {}), 30 * 60_000).unref();
 
   const server = app.listen(config.port, config.host, () => {
     console.log(`${config.branding.appName} v${config.version} running on http://${config.host}:${config.port} (mode: ${isLive() ? 'live' : 'demo'}${config.mode === 'auto' ? ' (automatic)' : ''}${supervised ? ', launcher' : ''}; AI Triage & Remediation: ${assistLive() ? 'live' : 'simulated'})`);
-    if (config.mode !== 'demo' && !config.connection) console.log(`Checkmarx One is not connected: ${config.connectionError || 'paste the API key under /admin → Settings, or upload a .env file.'}`);
+    if (!config.connection) console.log(`Checkmarx One is not connected: ${config.connectionError || 'paste the API key under /admin → Settings, or upload a .env file.'}`);
     if (config.connection) console.log(`Checkmarx One: tenant ${config.connection.tenant} (${config.connection.regionLabel}).`);
     if (!config.smtp.host) console.log(`SMTP not configured: emails are written to ${config.dataDir}/outbox.`);
     process.send?.({ type: 'ready' });

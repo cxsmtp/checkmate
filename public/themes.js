@@ -155,11 +155,11 @@ const melbourne = () => svg(
 const generic = () => svg(filler('cm-far', { min: 90, max: 220, gap: 4 }), filler('cm-mid', { min: 50, max: 140, gap: 10 }), filler('cm-near', { min: 20, max: 80, gap: 40 }));
 
 export const THEMES = {
-  dubai: { name: 'Dubai', greeting: 'Marhaba', lat: 25.2048, lon: 55.2708, zones: ['Asia/Dubai', 'Asia/Muscat'], landmarks: 'Burj Khalifa · Dubai Frame · Museum of the Future · Burj Al Arab', skyline: dubai },
-  'new-york': { name: 'New York', greeting: 'Welcome to the Big Apple', lat: 40.7128, lon: -74.006, zones: ['America/New_York'], landmarks: 'Statue of Liberty · Empire State · Chrysler · One World Trade · Brooklyn Bridge', skyline: newYork },
-  boston: { name: 'Boston', greeting: 'Welcome, Boston', lat: 42.3601, lon: -71.0589, zones: [], landmarks: 'Old State House · Custom House Tower · Prudential · Hancock · Zakim Bridge', skyline: boston },
-  singapore: { name: 'Singapore', greeting: 'Selamat datang', lat: 1.3521, lon: 103.8198, zones: ['Asia/Singapore'], landmarks: 'Supertree Grove · Marina Bay Sands · ArtScience Museum · Merlion · Singapore Flyer', skyline: singapore },
-  melbourne: { name: 'Melbourne', greeting: "G'day, Melbourne", lat: -37.8136, lon: 144.9631, zones: ['Australia/Melbourne'], landmarks: 'Shrine of Remembrance · Flinders Street Station · Eureka Tower · Royal Exhibition Building', skyline: melbourne },
+  dubai: { country: 'United Arab Emirates', countryCode: 'AE', name: 'Dubai', greeting: 'Marhaba', lat: 25.2048, lon: 55.2708, zones: ['Asia/Dubai', 'Asia/Muscat'], landmarks: 'Burj Khalifa · Dubai Frame · Museum of the Future · Burj Al Arab', skyline: dubai },
+  'new-york': { country: 'United States', countryCode: 'US', name: 'New York', greeting: 'Welcome to the Big Apple', lat: 40.7128, lon: -74.006, zones: ['America/New_York'], landmarks: 'Statue of Liberty · Empire State · Chrysler · One World Trade · Brooklyn Bridge', skyline: newYork },
+  boston: { country: 'United States', countryCode: 'US', name: 'Boston', greeting: 'Welcome, Boston', lat: 42.3601, lon: -71.0589, zones: [], landmarks: 'Old State House · Custom House Tower · Prudential · Hancock · Zakim Bridge', skyline: boston },
+  singapore: { country: 'Singapore', countryCode: 'SG', name: 'Singapore', greeting: 'Selamat datang', lat: 1.3521, lon: 103.8198, zones: ['Asia/Singapore'], landmarks: 'Supertree Grove · Marina Bay Sands · ArtScience Museum · Merlion · Singapore Flyer', skyline: singapore },
+  melbourne: { country: 'Australia', countryCode: 'AU', name: 'Melbourne', greeting: "G'day, Melbourne", lat: -37.8136, lon: 144.9631, zones: ['Australia/Melbourne'], landmarks: 'Shrine of Remembrance · Flinders Street Station · Eureka Tower · Royal Exhibition Building', skyline: melbourne },
 };
 export const DEFAULT_THEME = { name: '', greeting: '', landmarks: '', skyline: generic };
 
@@ -192,7 +192,10 @@ let current = null;
 let photos = {};
 /** The photo list per city, from /api/config (cityPhotos). */
 export function setPhotos(map) { photos = map ?? {}; paintPhotos(); }
+/** Photos of one more city (fetched when a visitor from there arrives). */
+export function addPhotos(key, list) { photos = { ...photos, [key]: list ?? [] }; paintPhotos(); }
 export const photosFor = (key) => photos[key] ?? [];
+export const hasPhotosFor = (key) => key in photos && photos[key].length > 0;
 
 /**
  * Real photography, crossfading slowly, in every [data-photos] element of the current
@@ -200,7 +203,8 @@ export const photosFor = (key) => photos[key] ?? [];
  */
 const rotation = new WeakMap();
 export function paintPhotos() {
-  const key = THEMES[current] ? current : null;
+  // Any city: the five drawn ones, and every other city whose photos have been fetched.
+  const key = current || null;
   const list = key ? photosFor(key) : [];
   for (const el of document.querySelectorAll('[data-photos]')) {
     if (el.dataset.paintedPhotos === `${key}:${list.length}`) continue;

@@ -85,9 +85,9 @@ Verified on a tenant (project *Fusion Hub*): Fusion's findings arrive in `/api/r
 
 ## City themes and photography
 
-On first open a visitor sees *Make it feel like home*: share the location (coordinates never leave the browser; the nearest of Dubai, New York, Boston, Singapore, Melbourne within 300 km is chosen) or pick a city. The whole experience takes the city's palette, its real photographs (postcard, and faintly behind every page, crossfading every nine seconds with the photographer's credit), its local time and landmarks. The city is kept with the registration so invited colleagues see the same.
+Any city in the world. On first open the browser asks once for the position; the server names the city with OpenStreetMap Nominatim (city level; the coordinates are used for that one lookup and never stored), and until then the time zone gives the city. The visitor can also type any city (*Change city*). The page takes the city's real photographs (postcard, and faintly behind every page, crossfading with the photographer's credit), its local time, and — on the Business impact tab — its country's currency. Dubai, New York, Boston, Singapore and Melbourne also have their own palette and drawn skyline. The city is kept with the registration so invited colleagues see the same. The server needs outbound HTTPS to `nominatim.openstreetmap.org`, `commons.wikimedia.org` and `upload.wikimedia.org` for this; without it the time zone and the drawn skyline are used.
 
-Photos come from **Wikimedia Commons** — Creative Commons / public-domain only, landscape, 1600 px and wider, author and licence recorded — fetched in the background at first start when the server can reach `commons.wikimedia.org` / `upload.wikimedia.org` (`CITY_PHOTOS_AUTO=true`), or per city from Branding; the booth team can also upload their own. Without photos the hand-drawn skyline (`public/themes.js`) is shown, so the page never depends on the internet.
+Photos come from **Wikimedia Commons** — Creative Commons / public-domain only, landscape, 1600 px and wider, author and licence recorded — fetched the first time a visitor from a city arrives (and for the five drawn cities at first start) when the server can reach `commons.wikimedia.org` / `upload.wikimedia.org` (`CITY_PHOTOS_AUTO=true`), or for any city from Branding → City photography; the booth team can also upload their own. Without photos the hand-drawn skyline (`public/themes.js`) is shown, so the page never depends on the internet.
 
 ## Auto-update and software integrity
 
@@ -103,13 +103,13 @@ Every setting has an environment default and can be changed in `/admin` (or by `
 
 | Group | Variables |
 | --- | --- |
-| Event & branding | `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` (auto\|live\|demo, default auto), `DEFAULT_CITY`, `ASK_LOCATION`, `SAMPLE_REUSE_HOURS`, `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`, `CITY_PHOTOS_AUTO` |
+| Event & branding | `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` (auto\|live, default auto: real scans whenever the key is set), `DEFAULT_CITY`, `ASK_LOCATION`, `SAMPLE_REUSE_HOURS`, `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_MARK`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`, `CITY_PHOTOS_AUTO` |
 | Checkmarx One | `CX_API_KEY` (secret), `CX_BASE_URL` / `CX_IAM_URL` / `CX_TENANT` (overrides; normally derived from the key), `CX_PROJECT_PREFIX`, `CX_DEFAULT_BRANCH`, `CX_POLL_INTERVAL_MS`, `CX_SCAN_TIMEOUT_MS`, `CX_GITHUB_TOKEN` (secret), `CX_ALLOW_CUSTOM_HOST` |
-| Scan | `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (extra JSON entries) |
+| Scan | `CX_ENGINES` (default `sast,sca`), `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (extra JSON entries) |
 | Fusion | `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS` |
 | AI assist | `ASSIST_MODE` (simulated\|live, default simulated), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS` |
 | Business impact | `IMPACT_ENABLED`, `IMPACT_TRIAGE_MINUTES` (20), `IMPACT_FIX_MINUTES` (120), `IMPACT_FP_PERCENT` (30), `IMPACT_RELEASE_MULTIPLIER` (6), `IMPACT_HOURLY_RATE` (0 = the region's), `IMPACT_CURRENCY` (empty = the visitor's region), `IMPACT_CREDIT_PRICE` (0 = not priced), `IMPACT_FUSION_CREDITS_PER_10K` |
-| Profiles | `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS` |
+| Profiles & samples | `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`, `SAMPLES_AUTO_SCAN` (scan samples when added), `SAMPLE_REUSE_HOURS` (refresh after, 168) |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; `SMTP_PASSWORD` accepted), `SMTP_FROM` (`SMTP_FROM_ADDRESS` accepted), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL` |
 | Container | `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS` |
 

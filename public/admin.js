@@ -91,7 +91,8 @@ async function applyBrand() {
     if (b.accent && b.accent !== 'city') document.documentElement.dataset.accent = b.accent;
     if (b.accentColor) { document.documentElement.style.setProperty('--accent-light', b.accentColor); document.documentElement.style.setProperty('--accent-dark', b.accentColor); }
     const mark = document.getElementById('brand-mark');
-    if (b.iconUrl) mark.replaceChildren(h('img', { src: b.iconUrl, alt: '' }));
+    mark.replaceChildren(b.iconUrl ? h('img', { src: b.iconUrl, alt: '' }) : (b.markText || '✦'));
+    mark.classList.toggle('has-img', Boolean(b.iconUrl));
     mark.classList.toggle('off', !c.connected);
   } catch { /* the console still works without branding */ }
 }
@@ -332,15 +333,15 @@ async function samples() {
     h('div', { class: 'toolbar' },
       h('h2', {}, 'Sample repositories'),
       h('button', { class: 'primary sm', onclick: () => slot.replaceChildren(sampleForm(null, render)) }, '+ Add repository')),
-    h('p', { class: 'hint' }, 'Visitors without a repository of their own pick one of these. "Scan now" runs a fresh Checkmarx One scan; visitors reuse the newest completed scan for the time set under Settings (results appear instantly), then a fresh scan is started.'),
+    h('p', { class: 'hint' }, 'Visitors without a repository of their own pick one of these. A repository is scanned on Checkmarx One as soon as it is added, so its results are ready the moment a visitor picks it; they are refreshed in the background after the time set under Settings → Profiles & samples. "Scan now" starts a fresh scan at once.'),
     slot, m,
     h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
-      h('thead', {}, h('tr', {}, ['Repository', 'Branch', 'Shown', 'Latest scan', ''].map((t) => h('th', {}, t)))),
+      h('thead', {}, h('tr', {}, ['Repository', 'Branch', 'Shown', 'Results', ''].map((t) => h('th', {}, t)))),
       h('tbody', {}, list.length ? list.map((s) => h('tr', {},
         h('td', {}, h('strong', {}, s.name), h('small', {}, s.url), s.language ? h('small', {}, s.language) : null),
         h('td', {}, s.branch || 'default'),
         h('td', {}, h('span', { class: `pill ${s.enabled ? 'ok' : ''}` }, s.enabled ? 'Yes' : 'Hidden')),
-        h('td', {}, s.latest ? fmt(s.latest.completedAt) : '—'),
+        h('td', {}, s.scanning ? h('span', { class: 'pill' }, 'Scanning…') : null, s.latest ? h('span', { class: 'pill ok' }, `Ready · ${s.latest.live ? 'Checkmarx One' : 'demo'}`) : s.scanning ? null : h('span', { class: 'pill' }, 'Not scanned yet'), s.latest ? h('small', {}, fmt(s.latest.completedAt)) : null),
         h('td', {}, h('div', { class: 'row-actions' },
           h('button', { class: 'link', onclick: busy(async () => {
             try {
@@ -388,7 +389,7 @@ async function branding() {
     const icon = d['branding.iconUrl'].value;
     const logo = d['branding.logoUrl'].value;
     preview.replaceChildren(
-      icon ? h('img', { src: icon, alt: '', style: 'max-height:32px' }) : h('span', { class: 'mark' }, '♞'),
+      icon ? h('img', { src: icon, alt: '', style: 'max-height:32px' }) : h('span', { class: 'mark' }, d['branding.markText'].value || '✦'),
       logo ? h('img', { src: logo, alt: '', style: `max-height:${d['branding.logoHeight'].value || 36}px` }) : h('span', { class: 'nm' }, d['branding.appName'].value || 'Checkmate'),
       h('span', { class: 'co' }, d['branding.companyName'].value));
     const accent = d['branding.accentColor'].value;
@@ -404,7 +405,8 @@ async function branding() {
       h('label', { class: 'field' }, h('span', {}, 'App name'), h('input', { name: 'branding.appName', value: s['branding.appName'] ?? '', maxlength: 60 })),
       h('label', { class: 'field' }, h('span', {}, 'Company name ', h('small', {}, 'shown next to the name and in email footers')), h('input', { name: 'branding.companyName', value: s['branding.companyName'] ?? '', maxlength: 80 })),
       imageField('Logo', 'branding.logoUrl', s['branding.logoUrl'], 'PNG/SVG, up to 300 KB; replaces the app name in the header'),
-      imageField('Icon', 'branding.iconUrl', s['branding.iconUrl'], 'square; browser tab and brand mark'),
+      imageField('Icon', 'branding.iconUrl', s['branding.iconUrl'], 'square; replaces the mark in the sidebar and the browser tab icon'),
+      h('label', { class: 'field' }, h('span', {}, 'Mark ', h('small', {}, 'shown when no icon is uploaded: 1–3 characters or an emoji')), h('input', { name: 'branding.markText', value: s['branding.markText'] ?? '✦', maxlength: 6 })),
       h('label', { class: 'field' }, h('span', {}, 'Logo height (px)'), h('input', { name: 'branding.logoHeight', type: 'number', min: 16, max: 80, value: s['branding.logoHeight'] ?? 36 })),
       h('label', { class: 'field' }, h('span', {}, 'Accent colour ', h('small', {}, 'overrides the palette below; leave empty to use it')),
         h('div', { style: 'display:flex;gap:10px;align-items:center' },
@@ -418,8 +420,8 @@ async function branding() {
       h('label', { class: 'field' }, h('span', {}, 'Tagline'), h('input', { name: 'event.tagline', value: s['event.tagline'] ?? '', maxlength: 120 })),
       h('label', { class: 'field' }, h('span', {}, 'Venue'), h('input', { name: 'event.venue', value: s['event.venue'] ?? '', maxlength: 120, placeholder: 'Black Hat MEA · Hall 2, booth 14' })),
       h('label', { class: 'field' }, h('span', {}, 'Footer line'), h('input', { name: 'branding.footer', value: s['branding.footer'] ?? '', maxlength: 200 })),
-      h('label', { class: 'field' }, h('span', {}, 'City theme'), h('select', { name: 'defaultCity' }, [['auto', 'Per visitor (location / time zone)'], ['dubai', 'Dubai'], ['new-york', 'New York'], ['boston', 'Boston'], ['singapore', 'Singapore'], ['melbourne', 'Melbourne']].map(([v, t]) => h('option', { value: v, selected: (s.defaultCity ?? 'auto') === v }, t)))),
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'askLocation', checked: Boolean(s.askLocation) }), 'Ask each new device for its location to pick the city')),
+      h('label', { class: 'field' }, h('span', {}, 'City ', h('small', {}, 'auto: each visitor\'s own city, anywhere in the world; or one city for everyone')), h('input', { name: 'defaultCity', value: s.defaultCity ?? 'auto', placeholder: 'auto, or a city such as Dubai or Riyadh', list: 'city-list' }), h('datalist', { id: 'city-list' }, ['auto', 'Dubai', 'New York', 'Boston', 'Singapore', 'Melbourne'].map((v) => h('option', { value: v })))),
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'askLocation', checked: Boolean(s.askLocation) }), 'Detect each new device\'s city from its position (the browser asks once; the time zone is used until then)')),
     h('div', { class: 'save-bar' }, h('button', { class: 'primary', type: 'submit' }, 'Save branding'), m));
   form.addEventListener('input', drawPreview);
   form.addEventListener('change', drawPreview);
@@ -443,42 +445,51 @@ async function branding() {
 }
 
 const CITY_NAMES = { dubai: 'Dubai', 'new-york': 'New York', boston: 'Boston', singapore: 'Singapore', melbourne: 'Melbourne' };
+const cityKey = (name) => String(name).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
 async function cityPhotos() {
-  let photos = await api('GET', '/cities');
+  const first = await api('GET', '/cities');
+  let photos = first.photos ?? first;
+  const names = { ...(first.names ?? {}), ...CITY_NAMES };
   const m = msg();
   const grid = h('div', { class: 'city-grid' });
-  const draw = () => grid.replaceChildren(...Object.entries(CITY_NAMES).map(([key, name]) => {
+  const nameOf = (key) => names[key] || key;
+  const fetchCity = async (key, name) => {
+    say(m, `Looking for ${name} on Wikimedia Commons…`);
+    try { const r = await api('POST', `/cities/${key}/fetch`, { count: 3, name }); photos = r.photos; names[key] = name; say(m, r.added ? `${r.added} licensed photo${r.added === 1 ? '' : 's'} of ${name} added.` : `Nothing fetched: ${r.errors[0] || 'no suitable licensed photo found'}.`, Boolean(r.added)); draw(); }
+    catch (err) { say(m, err.message, false); }
+  };
+  const draw = () => grid.replaceChildren(...[...new Set([...Object.keys(CITY_NAMES), ...Object.keys(photos)])].map((key) => {
+    const name = nameOf(key);
     const list = photos[key] ?? [];
     const file = h('input', { type: 'file', accept: 'image/jpeg,image/png,image/webp', hidden: true, onchange: async (e) => {
       const f = e.target.files[0]; if (!f) return;
       if (f.size > 4_000_000) { say(m, 'Please use an image of up to 4 MB.', false); return; }
-      try { photos = await api('POST', `/cities/${key}/photos`, { dataUrl: await readFile(f, 'dataUrl'), credit: '' }); say(m, `Photo added for ${name}.`); draw(); } catch (err) { say(m, err.message, false); }
+      try { photos = await api('POST', `/cities/${key}/photos`, { dataUrl: await readFile(f, 'dataUrl'), credit: '', name }); say(m, `Photo added for ${name}.`); draw(); } catch (err) { say(m, err.message, false); }
     } });
     return h('div', { class: 'city-card' },
-      h('div', { class: 'spread' }, h('h3', {}, name), h('span', { class: `pill ${list.length ? 'ok' : 'warn'}` }, list.length ? `${list.length} photo${list.length === 1 ? '' : 's'}` : 'skyline drawing')),
+      h('div', { class: 'spread' }, h('h3', {}, name), h('span', { class: `pill ${list.length ? 'ok' : 'warn'}` }, list.length ? `${list.length} photo${list.length === 1 ? '' : 's'}` : CITY_NAMES[key] ? 'skyline drawing' : 'no photos yet')),
       h('div', { class: 'thumbs' }, list.map((p, i) => h('figure', {}, h('img', { src: p.src, alt: '' }), h('figcaption', {}, p.credit || 'Uploaded'), h('button', { type: 'button', class: 'link danger', onclick: async () => { if (confirm('Remove this photo?')) { photos = await api('DELETE', `/cities/${key}/photos/${i}`); draw(); } } }, 'Remove')))),
       h('div', { class: 'row-actions' },
-        h('button', { type: 'button', class: 'ghost sm', onclick: busy(async (e) => {
-          say(m, `Looking for ${name} on Wikimedia Commons…`);
-          try { const r = await api('POST', `/cities/${key}/fetch`, { count: 3 }); photos = r.photos; say(m, r.added ? `${r.added} licensed photo${r.added === 1 ? '' : 's'} of ${name} added.` : `Nothing fetched: ${r.errors[0] || 'no suitable licensed photo found'}.`, Boolean(r.added)); draw(); }
-          catch (err) { say(m, err.message, false); }
-        }) }, 'Fetch from Wikimedia Commons'),
+        h('button', { type: 'button', class: 'ghost sm', onclick: busy(() => fetchCity(key, name)) }, 'Fetch from Wikimedia Commons'),
         h('button', { type: 'button', class: 'ghost sm', onclick: () => file.click() }, 'Upload…'), file));
   }));
   draw();
+  const addName = h('input', { placeholder: 'Any city — Riyadh, Mumbai, London…', style: 'max-width:320px' });
   return h('div', { class: 'panel', style: 'margin-top:18px' },
     h('h2', {}, 'City photography'),
-    h('p', { class: 'hint' }, 'Real photos of each city, shown in the postcard and faintly behind the whole page, crossfading slowly. Fetched from Wikimedia Commons (Creative Commons or public domain only, landscape, 1600 px and wider, credit kept) at first start when the server can reach the internet, or uploaded here. Without photos the drawn skyline is shown.'),
+    h('p', { class: 'hint' }, 'Any city in the world. A visitor\'s city is found from their device (position, else time zone, or typed), and its photos are fetched from Wikimedia Commons the first time someone from there arrives (Creative Commons or public domain only, landscape, 1600 px and wider, credit kept). Add a city ahead of an event, or upload your own photos. The five cities below also have a drawn skyline.'),
+    h('div', { class: 'row-actions', style: 'margin-bottom:12px' }, addName, h('button', { type: 'button', class: 'primary sm', onclick: busy(async () => { const n = addName.value.trim(); if (!n) return; await fetchCity(cityKey(n), n); addName.value = ''; }) }, 'Add a city')),
     grid, m);
 }
 
 // ---------------------------------------------------------------------------
 // Settings: Checkmarx One, scan defaults, Fusion, profiles, email, event
 // ---------------------------------------------------------------------------
+const ENGINE_CHOICES = [['sast', 'SAST'], ['sca', 'SCA (open source)'], ['kics', 'IaC Security'], ['apisec', 'API Security'], ['containers', 'Container Security'], ['microengines', 'Secrets & repo health']];
 const SECTIONS = [
   { id: 'cxone', title: 'Checkmarx One', intro: 'One API key is enough: the tenant, region, IAM and API addresses are read from the key itself. Scans and results are fetched with it; nothing else talks to the tenant.', fields: [
     ['checkmarx.apiKey', 'API key', { secret: true, span: true, hint: 'Checkmarx One → Settings → Identity and access → API keys (refresh token)' }],
-    ['mode', 'Scans', { options: [['auto', 'Automatic — real Checkmarx One scans once the API key connects'], ['live', 'Live — always the tenant'], ['demo', 'Demo — simulated findings, no tenant']] }],
+    ['mode', 'Scans', { options: [['auto', 'Automatic — real Checkmarx One scans whenever the API key is set (demo only without a key)'], ['live', 'Live — always the tenant, never the demo']] }],
     ['checkmarx.projectPrefix', 'Project name prefix', { hint: 'projects created for visitors are named prefix + owner/repo' }],
     ['checkmarx.defaultBranch', 'Default branch'],
     ['checkmarx.githubToken', 'GitHub token for private repositories', { secret: true }],
@@ -490,12 +501,12 @@ const SECTIONS = [
     ['checkmarx.allowCustomHost', 'Allow a Checkmarx One host outside checkmarx.net (single-tenant / private deployments)', { checkbox: true }],
   ] },
   { id: 'scan', title: 'Scan defaults', intro: 'What a Checkmate scan runs. These are the defaults; when the tenant offers more (engines, LLM models, presets) the visitor sees the tenant\'s own list and can adjust if allowed.', fields: [
-    ['scan.engines', 'Engines', { list: true, hint: 'sast, sca, kics, apisec, containers, microengines' }],
+    ['scan.engines', 'Engines a scan runs', { engines: true, hint: 'SAST and SCA are recommended for the booth; Fusion is switched on below' }],
     ['scan.fusion', 'Fusion on by default (scan.config.ai.fusionEnabled)', { checkbox: true }],
     ['scan.llmModel', 'Default Fusion model (scan.config.ai.llmModel)', { placeholder: 'empty: the tenant\'s default', hint: 'e.g. opus-5.5, mythos-5.1 — the tenant\'s list is shown to the visitor' }],
     ['scan.extendedAnalysis', 'LLM-based SAST analysis (scan.config.sast.extendedAnalysis)', { checkbox: true }],
     ['scan.presetName', 'SAST preset', { placeholder: 'empty: project default' }],
-    ['scan.letVisitorChoose', 'Let the visitor choose engines and model on the scan step', { checkbox: true }],
+    ['scan.letVisitorChoose', 'Let the visitor choose the Fusion model (from the tenant\'s list) before the scan', { checkbox: true }],
     ['scan.extraConfig', 'Extra scan config (JSON array of {type, value}), merged last', { json: true, span: true, placeholder: '[{"type":"sca","value":{"exploitablePath":"true"}}]' }],
   ] },
   { id: 'fusion', title: 'Fusion', intro: 'How Fusion findings are recognised in scan results, and the application-level Fusion services (Dispatcher correlates a scanned application; Results serves risk scores and the application map).', fields: [
@@ -523,10 +534,12 @@ const SECTIONS = [
     ['impact.creditPrice', 'Price of one Checkmarx One credit', { type: 'number', hint: '0: credits are counted, not priced' }],
     ['impact.fusionCreditsPer10k', 'Fusion credits per 10K lines of code', { type: 'number', hint: '0: Fusion scan credits left out' }],
   ] },
-  { id: 'profiles', title: 'Profiles & samples', fields: [
+  { id: 'profiles', title: 'Visitors, samples & cities', intro: 'How visitors find themselves, the sample repositories offered to those without one, and the city photography.', fields: [
     ['profiles.lookup', 'Offer profile type-ahead on the visitor page', { checkbox: true }],
     ['profiles.minChars', 'Letters typed before profiles are offered', { type: 'number' }],
-    ['sampleReuseHours', 'Reuse a sample repository\'s scan for (hours, 0 = always rescan)', { type: 'number' }],
+    ['samplesAutoScan', 'Scan each sample repository as soon as it is added, so its results are ready for visitors', { checkbox: true }],
+    ['sampleReuseHours', 'Refresh a sample\'s results after (hours; 0 = never — results are always shown at once)', { type: 'number' }],
+    ['cities.autoFetch', 'Fetch licensed city photography from Wikimedia Commons (for every visitor\'s city)', { checkbox: true }],
     ['publicBaseUrl', 'Public address (used in email links)', { placeholder: 'https://checkmate.example.com' }],
   ] },
   { id: 'smtp', title: 'Email', intro: 'Invitations and the "results are ready" mail. Test sends a message to the address you give.', fields: [
@@ -566,6 +579,8 @@ async function settings() {
     const v = s[key];
     if (opt.options) return h('label', { class: 'field' }, h('span', {}, label), h('select', { name: key }, opt.options.map(([val, text]) => h('option', { value: val, selected: v === val }, text))));
     if (opt.checkbox) return h('label', { class: 'check' }, h('input', { type: 'checkbox', name: key, checked: Boolean(v) }), label);
+    if (opt.engines) return h('fieldset', { class: 'field span2 engines-field', 'data-key': key }, h('legend', {}, label, opt.hint ? h('small', {}, ' · ', opt.hint) : null),
+      h('div', { class: 'checks' }, ENGINE_CHOICES.map(([k, t]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', 'data-engine': k, checked: (v ?? []).includes(k) }), t))));
     if (opt.secret) return h('label', { class: `field ${opt.span ? 'span2' : ''}` }, h('span', {}, label, ' ', h('span', { class: 'secret-state' }, v?.set ? '(set — leave empty to keep)' : '(not set)'), opt.hint ? h('small', {}, ' · ', opt.hint) : null), h('input', { name: key, type: 'password', autocomplete: 'new-password', placeholder: v?.set ? '••••••••' : '' }));
     const value = opt.json ? (v?.length ? JSON.stringify(v) : '') : opt.list ? (v ?? []).join(', ') : v ?? '';
     return h('label', { class: `field ${opt.span ? 'span2' : ''}` }, h('span', {}, label, opt.hint ? h('small', {}, ' · ', opt.hint) : null),
@@ -618,18 +633,28 @@ async function settings() {
     SECTIONS.map(section),
     h('div', { class: 'save-bar' }, h('button', { class: 'primary', type: 'submit' }, 'Save settings'), m));
 
+  // One section at a time, chosen on the left (no long scrolling); every section is saved together.
+  const show = (id) => {
+    settingsSection = id;
+    form.querySelectorAll('.settings-section').forEach((el) => { el.hidden = el.id !== `sec-${id}`; });
+    nav.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.sec === id));
+    form.querySelector('.save-bar').hidden = id === 'env';
+  };
+  const navItem = (id, title, dot = '', note = '') => h('a', { href: `#sec-${id}`, 'data-sec': id, onclick: (e) => { e.preventDefault(); show(id); } }, h('span', { class: `dot ${dot}` }), h('span', {}, title, note ? h('small', {}, note) : null));
   const nav = h('nav', { class: 'settings-nav' },
-    h('a', { href: '#sec-env' }, h('span', { class: 'dot' }), '.env upload'),
     SECTIONS.map((sec) => {
-      const dot = sec.id === 'cxone' ? (s['checkmarx.apiKey']?.set ? (s.connection ? 'ok' : 'bad') : '') : sec.id === 'smtp' ? (s['smtp.host'] ? 'ok' : '') : '';
-      return h('a', { href: `#sec-${sec.id}`, onclick: (e) => { e.preventDefault(); document.getElementById(`sec-${sec.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, h('span', { class: `dot ${dot}` }), sec.title);
-    }));
+      const dot = sec.id === 'cxone' ? (s['checkmarx.apiKey']?.set ? (s.connection ? 'ok' : 'bad') : 'bad') : sec.id === 'smtp' ? (s['smtp.host'] ? 'ok' : '') : sec.id === 'assist' ? (s.assistLive ? 'ok' : '') : '';
+      const note = sec.id === 'cxone' ? (s.connection ? `${s.connection.tenant} · ${s.effectiveMode === 'live' ? 'real scans' : 'demo'}` : 'not connected') : sec.id === 'smtp' ? (s['smtp.host'] || 'outbox only') : sec.id === 'assist' ? (s.assistLive ? 'live' : 'simulated') : sec.id === 'scan' ? (s['scan.engines'] ?? []).join(', ').toUpperCase() : '';
+      return navItem(sec.id, sec.title, dot, note);
+    }),
+    navItem('env', 'Upload a .env file', '', 'everything at once'));
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const patch = {};
     for (const sec of SECTIONS) {
       for (const [key, , opt = {}] of sec.fields) {
+        if (opt.engines) { patch[key] = [...form.querySelectorAll(`[data-key="${key}"] [data-engine]`)].filter((i) => i.checked).map((i) => i.dataset.engine).join(','); continue; }
         const el = form.elements[key];
         if (!el) continue;
         if (opt.checkbox) patch[key] = el.checked;
@@ -647,8 +672,10 @@ async function settings() {
       say(m, errs, false);
     }
   });
+  queueMicrotask(() => show(SECTIONS.some((x) => x.id === settingsSection) || settingsSection === 'env' ? settingsSection : 'cxone'));
   return h('div', { class: 'settings-layout' }, nav, form);
 }
+let settingsSection = 'cxone';
 
 // ---------------------------------------------------------------------------
 // Updates & integrity

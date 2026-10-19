@@ -1,5 +1,7 @@
 /**
- * Real photography of each city, so the page feels like home wherever the booth is.
+ * Real photography of each city, so the page feels like home wherever the booth is — any city
+ * in the world: the five drawn ones have their own landmark searches, every other city is
+ * searched by its name the first time a visitor from there arrives.
  *
  * Photos live in <data>/cities/<city>/<n>.jpg with an index (photos.json) that keeps
  * each one's credit. They come from two places: an administrator uploads them
@@ -33,14 +35,22 @@ function writeIndex(idx) {
   fs.writeFileSync(`${indexFile()}.tmp`, JSON.stringify(idx, null, 2), { mode: 0o600 });
   fs.renameSync(`${indexFile()}.tmp`, indexFile());
 }
-const cityOk = (key) => CITY_THEMES.includes(key);
+const cityOk = (key) => typeof key === 'string' && /^[a-z0-9][a-z0-9-]{1,60}$/.test(key);
+const MAX_CITIES = 300;
+const searchesFor = (city, name) => SEARCHES[city] ?? (name ? [`${name} skyline`, `${name} city centre`, `${name} landmark`, name] : []);
 const EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
 /** What the page needs: per city, the photo addresses and credits (never file paths). */
+const photosOf = (idx, c) => (idx[c] ?? []).map((p, i) => ({ src: `/city-photos/${c}/${i}?v=${p.addedAt ? Date.parse(p.addedAt) : 0}`, credit: p.credit ?? '', source: p.pageUrl ?? '' }));
 export function publicList() {
   const idx = readIndex();
-  return Object.fromEntries(CITY_THEMES.map((c) => [c, (idx[c] ?? []).map((p, i) => ({ src: `/city-photos/${c}/${i}?v=${p.addedAt ? Date.parse(p.addedAt) : 0}`, credit: p.credit ?? '', source: p.pageUrl ?? '' }))]));
+  const keys = [...new Set([...CITY_THEMES, ...Object.keys(idx)])];
+  return Object.fromEntries(keys.map((c) => [c, photosOf(idx, c)]));
 }
+/** One city's photos (the page asks when a visitor's city is not one it already has). */
+export const photosFor = (city) => (cityOk(city) ? photosOf(readIndex(), city) : []);
+/** The city names behind the keys, for the admin list. */
+export const names = () => Object.fromEntries(Object.entries(readIndex()).map(([k, v]) => [k, v?.[0]?.city ?? '']));
 export const list = () => readIndex();
 
 /** The file behind /city-photos/:city/:n, or null. */
@@ -52,26 +62,28 @@ export function file(city, n) {
   return fs.existsSync(abs) ? { path: abs, type: p.type } : null;
 }
 
-function add(city, { buffer, type, credit, pageUrl, source }) {
+function add(city, { buffer, type, credit, pageUrl, source, name = '' }) {
   if (!cityOk(city)) throw Object.assign(new Error('Unknown city'), { status: 400 });
   if (!EXT[type]) throw Object.assign(new Error('Use a JPEG, PNG or WebP image.'), { status: 400 });
   if (buffer.length > MAX_BYTES) throw Object.assign(new Error('Please use an image of up to 4 MB.'), { status: 400 });
   const idx = readIndex();
+  if (!idx[city] && Object.keys(idx).length >= MAX_CITIES) throw Object.assign(new Error(`Photos are kept for up to ${MAX_CITIES} cities; remove some under Branding.`), { status: 400 });
   idx[city] ??= [];
   if (idx[city].length >= MAX_PER_CITY) throw Object.assign(new Error(`Up to ${MAX_PER_CITY} photos per city.`), { status: 400 });
   fs.mkdirSync(path.join(dir(), city), { recursive: true, mode: 0o700 });
-  const name = `${Date.now()}-${idx[city].length}.${EXT[type]}`;
-  fs.writeFileSync(path.join(dir(), city, name), buffer, { mode: 0o600 });
-  idx[city].push({ file: name, type, credit: String(credit ?? '').slice(0, 300), pageUrl: /^https:\/\/commons\.wikimedia\.org\//.test(pageUrl ?? '') ? pageUrl : '', source, addedAt: new Date().toISOString() });
+  const cityName = name;
+  const fileName = `${Date.now()}-${idx[city].length}.${EXT[type]}`;
+  fs.writeFileSync(path.join(dir(), city, fileName), buffer, { mode: 0o600 });
+  idx[city].push({ file: fileName, city: String(cityName ?? '').slice(0, 80), type, credit: String(credit ?? '').slice(0, 300), pageUrl: /^https:\/\/commons\.wikimedia\.org\//.test(pageUrl ?? '') ? pageUrl : '', source, addedAt: new Date().toISOString() });
   writeIndex(idx);
   return idx[city].length - 1;
 }
 
 /** An uploaded photo (data URL) for a city. */
-export function upload(city, dataUrl, credit = '') {
+export function upload(city, dataUrl, credit = '', name = '') {
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl ?? ''));
   if (!m) throw Object.assign(new Error('Upload a JPEG, PNG or WebP image.'), { status: 400 });
-  return add(city, { buffer: Buffer.from(m[2], 'base64'), type: m[1], credit, source: 'upload' });
+  return add(city, { buffer: Buffer.from(m[2], 'base64'), type: m[1], credit, source: 'upload', name });
 }
 
 export function remove(city, n) {
@@ -115,11 +127,13 @@ async function commons(query, signal) {
  * Fetches up to `count` licensed photos of a city from Wikimedia Commons, one per
  * landmark search, skipping ones already held. Returns {added, tried, errors}.
  */
-export async function fetchFromCommons(city, { count = 3, timeoutMs = 25_000, log = console } = {}) {
+export async function fetchFromCommons(city, { count = 3, timeoutMs = 25_000, log = console, name = '' } = {}) {
   if (!cityOk(city)) throw Object.assign(new Error('Unknown city'), { status: 400 });
+  const cityName = name || readIndex()[city]?.[0]?.city || '';
+  if (!searchesFor(city, cityName).length) throw Object.assign(new Error('Give the city\'s name to search for its photos.'), { status: 400 });
   const have = new Set((readIndex()[city] ?? []).map((p) => p.pageUrl).filter(Boolean));
   const result = { city, added: 0, tried: 0, errors: [] };
-  for (const query of SEARCHES[city]) {
+  for (const query of searchesFor(city, cityName)) {
     if (result.added >= count || (readIndex()[city]?.length ?? 0) >= MAX_PER_CITY) break;
     const ac = new AbortController();
     const timer = setTimeout(() => ac.abort(), timeoutMs);
@@ -132,7 +146,7 @@ export async function fetchFromCommons(city, { count = 3, timeoutMs = 25_000, lo
       if (!res.ok) throw new Error(`download answered ${res.status}`);
       const buffer = Buffer.from(await res.arrayBuffer());
       if (buffer.length > MAX_BYTES) continue;
-      add(city, { buffer, type: 'image/jpeg', credit: `${pick.artist || 'Wikimedia Commons'} · ${pick.licence}`, pageUrl: pick.pageUrl, source: 'commons' });
+      add(city, { buffer, type: 'image/jpeg', credit: `${pick.artist || 'Wikimedia Commons'} · ${pick.licence}`, pageUrl: pick.pageUrl, source: 'commons', name: cityName });
       have.add(pick.pageUrl);
       result.added += 1;
     } catch (e) {
@@ -154,4 +168,25 @@ export function autoFetch(log = console) {
   (async () => {
     for (const city of missing) await fetchFromCommons(city, { log }).catch((e) => log.warn?.(`City photos for ${city}: ${e.message}`));
   })();
+}
+
+/**
+ * A visitor's city without photos yet: fetch them once (concurrent asks for the same city share
+ * one fetch; a city that found none is not retried for an hour).
+ */
+const inflight = new Map();
+const recentMiss = new Map();
+export function ensure(city, name, log = console) {
+  if (!cityOk(city)) return Promise.resolve([]);
+  const have = photosFor(city);
+  if (have.length) return Promise.resolve(have);
+  if (!name && !SEARCHES[city]) return Promise.resolve([]);
+  if (Date.now() - (recentMiss.get(city) ?? 0) < 3_600_000) return Promise.resolve([]);
+  if (!inflight.has(city)) {
+    inflight.set(city, fetchFromCommons(city, { name, count: 3, log })
+      .then((r) => { if (!r.added) recentMiss.set(city, Date.now()); return photosFor(city); })
+      .catch(() => { recentMiss.set(city, Date.now()); return []; })
+      .finally(() => inflight.delete(city)));
+  }
+  return inflight.get(city);
 }

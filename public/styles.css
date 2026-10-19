@@ -567,3 +567,61 @@ dl.info dt { color: var(--muted); } dl.info dd { margin: 0; word-break: break-wo
 .impact-how summary { cursor: pointer; font-weight: 600; color: var(--text); }
 .impact-how ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 3px; columns: 2; }
 @media (max-width: 900px) { .impact-hero, .impact-cards { grid-template-columns: 1fr; } .impact-how ul { columns: 1; } .outcome-hero.with-money { grid-template-columns: 1fr; } .hero-money { justify-self: stretch; } }
+.evidence { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: var(--muted); display: grid; gap: 3px; }
+
+/* Brand: an uploaded icon or the mark text in the square; a logo in place of the name */
+.brand-mark.has-img { background: transparent; }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; border-radius: 9px; }
+.brand-logo { display: block; max-width: 150px; object-fit: contain; }
+
+/* Welcome: the promise, the one field, and the journey from finding to fixed */
+.try { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 18px; font-size: 13.5px; color: var(--muted); }
+.chip-btn { min-height: 0; padding: 6px 12px; border-radius: 999px; font-size: 13px; font-weight: 500; background: var(--surface-2); }
+.chip-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.deck .postcard { min-height: 280px; flex: 1 1 auto; }
+.deck { display: flex; flex-direction: column; justify-content: center; }
+.journey { padding: 16px 20px; }
+.journey ol { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 10px; }
+.journey li { display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start; }
+.journey .n { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 13px; }
+.journey li:nth-child(3) .n { background: color-mix(in srgb, var(--gold) 22%, transparent); color: color-mix(in srgb, var(--gold) 75%, var(--text)); }
+.journey li:nth-child(4) .n { background: var(--ok-soft); color: var(--ok); }
+.journey b { font-weight: 650; } .journey b span { font-weight: 500; color: var(--muted); }
+.journey small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+
+/* Details: one screen — you and your team, the application, and go */
+.details.one { grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(260px, .75fr); align-items: stretch; height: 100%; min-height: 0; }
+.details.one > .panel { display: flex; flex-direction: column; gap: 6px; min-height: 0; overflow: auto; padding: 18px 20px; }
+.details.one h3 { margin: 0; } .details.one .hint { margin: 0 0 6px; }
+.details.one h4.sub, .details.one .spread.sub { margin-top: 10px; }
+.details.one h4 { margin: 0; }
+.grid.two.compact { gap: 8px 12px; }
+.grid.two.compact .field input { min-height: 38px; }
+.you-card { display: grid; grid-template-columns: 44px 1fr auto; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+.you-card .avatar { width: 44px; height: 44px; font-size: 15px; }
+.you-card b { display: block; } .you-card small { display: block; color: var(--muted); font-size: 12.5px; }
+.repo-row { grid-template-columns: minmax(0, 1fr) 130px; gap: 10px; }
+.repo-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 6px 0 4px; }
+.repo-card { display: grid; gap: 2px; text-align: left; min-height: 0; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.repo-card b { font-weight: 600; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-card small { color: var(--muted); font-size: 12px; }
+.repo-card[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.details.one .panel.go { border-color: color-mix(in srgb, var(--gold) 45%, var(--border)); background: linear-gradient(160deg, color-mix(in srgb, var(--gold) 9%, var(--surface)), var(--surface) 60%); }
+.details.one .add-person { display: grid; grid-template-columns: 1fr 1.3fr auto; gap: 8px; margin-top: 6px; }
+.city-dialog input[type="search"] { width: 100%; margin-top: 14px; }
+@media (max-width: 1100px) { .details.one { grid-template-columns: 1fr; height: auto; } .details.one > .panel { overflow: visible; } }
+
+/* Overview: the story at a glance — found, proven, fixed, saved */
+.story { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr; gap: 10px; align-items: stretch; }
+.story-stage { display: grid; gap: 2px; align-content: start; text-align: left; min-height: 0; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--surface); position: relative; overflow: hidden; }
+button.story-stage { cursor: pointer; } button.story-stage:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.story-stage .loop-k { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--head); }
+.story-stage b { font-family: var(--display); font-size: 32px; font-weight: 560; line-height: 1.05; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.story-stage small { color: var(--muted); font-size: 12.5px; }
+.story-stage.done b { color: var(--accent); }
+.story-stage.running::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: linear-gradient(90deg, transparent, var(--accent), transparent); background-size: 200% 100%; animation: sweep 1.4s linear infinite; }
+.story-stage.money { border: 0; background: linear-gradient(135deg, #17492e, #2f6e3f 65%, #8a7a2c); color: #fff; }
+.story-stage.money .loop-k, .story-stage.money small { color: inherit; opacity: .9; }
+@media (max-width: 900px) { .story { grid-template-columns: 1fr 1fr; } .story .loop-arrow { display: none; } }
+.saved-line { margin-top: 12px; min-height: 0; width: 100%; text-align: left; padding: 12px 16px; border: 0; border-radius: 12px; background: linear-gradient(135deg, #17492e, #2f6e3f 65%, #8a7a2c); color: #fff; font-size: 14px; }
+.saved-line b { font-family: var(--display); font-size: 20px; font-weight: 560; }

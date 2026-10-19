@@ -28,7 +28,7 @@ test('Automatic mode: real scan and results with the key alone; AI Triage simula
   const mock = await startMockCxOne();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'checkmate-auto-'));
   const port = await freePort();
-  const env = { ...process.env, DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1', CX_API_KEY: mock.apiKey, CX_BASE_URL: mock.base, CX_IAM_URL: mock.base, CX_ALLOW_CUSTOM_HOST: 'true', CX_POLL_INTERVAL_MS: '150', FUSION_TIMEOUT_MS: '20000', CITY_PHOTOS_AUTO: 'false', ADMIN_PASSWORD: 'auto-mode-test-password', UPDATE_CHECK_MINUTES: '0' };
+  const env = { ...process.env, DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1', CX_API_KEY: mock.apiKey, CX_BASE_URL: mock.base, CX_IAM_URL: mock.base, CX_ALLOW_CUSTOM_HOST: 'true', CX_POLL_INTERVAL_MS: '150', FUSION_TIMEOUT_MS: '20000', CITY_PHOTOS_AUTO: 'false', ADMIN_PASSWORD: 'auto-mode-test-password', UPDATE_CHECK_MINUTES: '0', SAMPLES_AUTO_SCAN: 'false' };
   delete env.CX_MODE;
   delete env.ASSIST_MODE;
   const child = spawn(process.execPath, ['src/server.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });

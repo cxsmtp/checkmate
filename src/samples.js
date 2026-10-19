@@ -38,7 +38,7 @@ export const publicList = () =>
   list()
     .filter((s) => s.enabled)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-    .map(({ id, name, url, branch, language, description, latest }) => ({ id, name, url, branch, language, description, hasResults: Boolean(latest?.completedAt) }));
+    .map((s) => ({ id: s.id, name: s.name, url: s.url, branch: s.branch, language: s.language, description: s.description, hasResults: Boolean(reusable(s)) }));
 
 export function validate(input = {}) {
   const errors = {};
@@ -78,8 +78,8 @@ export function update(id, input) {
   const { value, errors } = validate({ ...existing, ...input });
   if (errors) return { errors };
   // A different repository or branch means earlier results no longer apply.
-  const latest = value.url === existing.url && value.branch === existing.branch ? existing.latest : undefined;
-  Object.assign(existing, value, { latest });
+  const same = value.url === existing.url && value.branch === existing.branch;
+  Object.assign(existing, value, { latest: same ? existing.latest : undefined, scanning: same ? existing.scanning : undefined });
   write(all);
   return { sample: existing };
 }
@@ -98,14 +98,36 @@ export function recordScan(id, sessionId, completedAt, live = false) {
   const sample = all.find((s) => s.id === id);
   if (!sample) return;
   sample.latest = { sessionId, completedAt, live: Boolean(live) };
+  if (sample.scanning?.sessionId === sessionId) delete sample.scanning;
   write(all);
 }
 
-/** A completed scan of this sample that is recent enough to reuse, or null. */
+/**
+ * The sample's ready results: its newest completed scan of the current kind (a demo result is never
+ * shown to a live visitor, nor a live one in the demo), however old: an older scan is still shown at
+ * once while a fresh one runs in the background (see needsScan).
+ */
 export function reusable(sample) {
-  if (!sample?.latest?.completedAt || !config.sampleReuseHours) return null;
-  // A demo result is never reused for a live visitor, nor a live one in the demo.
+  if (!sample?.latest?.completedAt) return null;
   if (Boolean(sample.latest.live) !== isLive()) return null;
-  const age = Date.now() - new Date(sample.latest.completedAt).getTime();
-  return age <= config.sampleReuseHours * 3_600_000 ? sample.latest : null;
+  return sample.latest;
+}
+
+/** Should a fresh scan of this sample start now: no results of this kind yet, or older than the refresh window. */
+export function needsScan(sample) {
+  if (!sample?.enabled) return false;
+  const ready = reusable(sample);
+  if (!ready) return true;
+  if (!config.sampleReuseHours) return false;
+  return Date.now() - new Date(ready.completedAt).getTime() > config.sampleReuseHours * 3_600_000;
+}
+
+/** The sample-refresh scan running for it (session id), so the same repository is never scanned twice at once. */
+export function markScanning(id, sessionId) {
+  const all = list();
+  const sample = all.find((s) => s.id === id);
+  if (!sample) return;
+  if (sessionId) sample.scanning = { sessionId, startedAt: new Date().toISOString() };
+  else delete sample.scanning;
+  write(all);
 }

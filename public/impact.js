@@ -35,7 +35,10 @@ export const IMPACT_DEFAULTS = Object.freeze({
 export const REGIONAL_RATES = Object.freeze({
   USD: 110, AED: 250, SAR: 250, QAR: 250, SGD: 90, AUD: 100, NZD: 95, EUR: 85, GBP: 80, CHF: 120,
   CAD: 105, INR: 2000, JPY: 7000, KRW: 70000, HKD: 450, ILS: 300, ZAR: 650, BRL: 180, MXN: 700,
-  SEK: 750, NOK: 750, DKK: 600, PLN: 200,
+  SEK: 750, NOK: 750, DKK: 600, PLN: 200, CNY: 300, TWD: 1500, THB: 1200, MYR: 150, IDR: 450000,
+  PHP: 1500, VND: 700000, PKR: 6000, BDT: 3000, LKR: 6000, EGP: 1200, NGN: 25000, KES: 3500, TRY: 1200,
+  CZK: 1100, HUF: 14000, RON: 200, KWD: 20, BHD: 25, OMR: 25, JOD: 30, ARS: 25000, CLP: 30000,
+  COP: 120000, PEN: 120, MAD: 300,
 });
 
 /** Each booth city's currency. Amounts are written in en-US so a currency is never ambiguous (SGD 9,000, A$9,000, AED 9,000, not "$"). */
@@ -51,20 +54,28 @@ const COUNTRY_CURRENCY = {
   US: 'USD', AE: 'AED', SA: 'SAR', QA: 'QAR', SG: 'SGD', AU: 'AUD', NZ: 'NZD', GB: 'GBP', CH: 'CHF', CA: 'CAD',
   IN: 'INR', JP: 'JPY', KR: 'KRW', HK: 'HKD', IL: 'ILS', ZA: 'ZAR', BR: 'BRL', MX: 'MXN', SE: 'SEK', NO: 'NOK',
   DK: 'DKK', PL: 'PLN', DE: 'EUR', FR: 'EUR', NL: 'EUR', IE: 'EUR', ES: 'EUR', IT: 'EUR', BE: 'EUR', AT: 'EUR',
-  PT: 'EUR', FI: 'EUR', LU: 'EUR', GR: 'EUR',
+  PT: 'EUR', FI: 'EUR', LU: 'EUR', GR: 'EUR', SK: 'EUR', SI: 'EUR', EE: 'EUR', LV: 'EUR', LT: 'EUR', CY: 'EUR',
+  MT: 'EUR', HR: 'EUR', CN: 'CNY', TW: 'TWD', TH: 'THB', MY: 'MYR', ID: 'IDR', PH: 'PHP', VN: 'VND', PK: 'PKR',
+  BD: 'BDT', LK: 'LKR', EG: 'EGP', NG: 'NGN', KE: 'KES', TR: 'TRY', CZ: 'CZK', HU: 'HUF', RO: 'RON', KW: 'KWD',
+  BH: 'BHD', OM: 'OMR', JO: 'JOD', AR: 'ARS', CL: 'CLP', CO: 'COP', PE: 'PEN', MA: 'MAD',
 };
 
 /**
- * The region the amounts are for: the visitor's city when one is chosen, else the browser's
- * country (en-GB → GBP), else US dollars. An administrator's currency wins over both.
+ * The region the amounts are for: the visitor's city (a drawn city, or any city with its country),
+ * else the browser's country (en-GB → GBP), else US dollars. An administrator's currency wins. A
+ * currency without a regional rate (and no rate set by the administrator) is shown in US dollars.
+ * `place`: a city key ("dubai") or { key, name, countryCode }.
  */
-export function regionFor(cityKey, locale = '', settings = {}) {
+export function regionFor(place, locale = '', settings = {}) {
   const fixed = String(settings.currency ?? '').trim().toUpperCase();
-  const city = CITY_REGIONS[cityKey];
-  let currency = city?.currency;
-  if (!currency) currency = COUNTRY_CURRENCY[String(locale).split(/[-_]/)[1]?.toUpperCase()] ?? 'USD';
+  const key = typeof place === 'string' ? place : place?.key;
+  const city = CITY_REGIONS[key];
+  const country = typeof place === 'object' && place ? String(place.countryCode ?? '').toUpperCase() : '';
+  let currency = city?.currency ?? COUNTRY_CURRENCY[country] ?? COUNTRY_CURRENCY[String(locale).split(/[-_]/)[1]?.toUpperCase()] ?? 'USD';
   if (/^[A-Z]{3}$/.test(fixed)) currency = fixed;
-  return { currency, locale: 'en-US', label: city?.label ?? '' };
+  else if (!REGIONAL_RATES[currency] && !(Number(settings.hourlyRate) > 0)) currency = 'USD';
+  const label = city?.label ?? (typeof place === 'object' && place ? place.name || place.country || '' : '');
+  return { currency, locale: 'en-US', label };
 }
 
 const num = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== null ? Number(v) : fallback);

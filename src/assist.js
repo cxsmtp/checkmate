@@ -92,6 +92,21 @@ function finishTriage(id) {
   }
   setAssist(id, 'triage', { status: 'done', finishedAt: new Date().toISOString(), summary });
   audit({ type: 'assist', outcome: 'info', reason: `AI Triage finished for ${s.repo.url}: ${summary.vulnerable} vulnerable, ${summary.notExploitable} not exploitable, ${summary.uncertain} uncertain` });
+  // One click, both steps: AI Remediation follows on what AI Triage kept.
+  const chain = s.assist.chain;
+  if (chain) {
+    store.update(id, (x) => { delete x.assist.chain; });
+    try { startRemediation(id, chain.scope); } catch (e) { setAssist(id, 'remediation', { status: 'idle', error: e.message }); }
+  }
+}
+
+/** Triage, then fix what is real: one click (AI Remediation starts by itself when AI Triage ends). */
+export function startFixAll(id, scope = 'fusion', log = console) {
+  const session = store.load(id);
+  if (session?.assist?.triage?.status === 'done') return startRemediation(id, scope, log);
+  const started = startTriage(id, scope, log);
+  store.update(id, (s) => { s.assist.chain = { scope, at: new Date().toISOString() }; });
+  return store.load(id) ?? started;
 }
 
 /** Checkmarx One's AI Triage record, in the shape the page shows (as CxMissionZero reads it). */

@@ -47,7 +47,9 @@ export function validateRegistration(body = {}, { getSample = () => null } = {})
   if (!sample && body.consent !== true) errors.consent = 'Please confirm you are authorised to have this repository scanned.';
 
   if (Object.keys(errors).length) return { errors };
-  // Only a known city name is kept (never coordinates); anything else means no theme.
-  const theme = CITY_THEMES.includes(body.theme) ? body.theme : null;
-  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null, theme, profileId } };
+  // Only the city (its key and name, never coordinates) is kept; anything else means no theme.
+  const theme = typeof body.theme === 'string' && /^[a-z0-9][a-z0-9-]{1,60}$/.test(body.theme) ? body.theme : null;
+  const p = body.place && typeof body.place === 'object' ? body.place : {};
+  const place = theme ? { key: theme, name: clean(p.name, 80), country: clean(p.country, 80), countryCode: /^[A-Za-z]{2}$/.test(String(p.countryCode ?? '')) ? String(p.countryCode).toUpperCase() : '' } : null;
+  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null, theme, place, profileId } };
 }

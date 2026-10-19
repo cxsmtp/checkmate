@@ -60,3 +60,24 @@ test('settings are cleaned; amounts are written in their currency', () => {
   assert.equal(formatCompact(1_250_000, 'USD'), '$1.3M');
   assert.equal(formatMoney(null, 'USD'), '—');
 });
+
+test('every Fusion-only finding carries why the rules missed it and why Fusion found it', async () => {
+  const { explainFindings } = await import('../src/explain.js');
+  const fusionOnly = [{ id: 'f1', fusionOnly: true, title: 'Missing Authorization', cwe: '862', severity: 'HIGH', file: 'a.ts', line: 3, nodes: [{ fileName: 'a.ts' }, { fileName: 'b.ts' }], fusionInsight: 'The id comes from the URL.' }, { id: 'f2', fusionOnly: true, title: 'Something new', severity: 'MEDIUM' }];
+  explainFindings(fusionOnly, [{ id: 'o', title: 'SQL Injection', cwe: '89', severity: 'HIGH' }], { engines: ['sast', 'sca'], llmModel: 'opus-5.5' });
+  for (const f of fusionOnly) {
+    assert.ok(f.explanation.whyMissed.length > 40);
+    assert.ok(f.explanation.whyCaught.length > 40);
+    assert.match(f.explanation.evidence[0], /SAST and SCA ran on the same code/);
+  }
+  assert.match(fusionOnly[0].explanation.whyMissed, /absence/);
+  assert.match(fusionOnly[0].explanation.whyCaught, /In Fusion's words: The id comes from the URL\./);
+});
+
+test('any city: the currency follows its country; an unknown rate falls back to US dollars', () => {
+  assert.equal(regionFor({ key: 'mumbai-in', name: 'Mumbai', countryCode: 'IN' }).currency, 'INR');
+  assert.equal(regionFor({ key: 'berlin-de', name: 'Berlin', countryCode: 'DE' }).currency, 'EUR');
+  assert.equal(regionFor({ key: 'riyadh-sa', name: 'Riyadh', countryCode: 'SA' }).label, 'Riyadh');
+  assert.equal(regionFor({ key: 'reykjavik-is', name: 'Reykjavik', countryCode: 'IS' }).currency, 'USD');
+  assert.equal(regionFor({ key: 'x', countryCode: 'IS' }, '', { currency: 'ISK', hourlyRate: 15000 }).currency, 'ISK');
+});
