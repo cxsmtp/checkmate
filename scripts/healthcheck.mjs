@@ -4,7 +4,7 @@
 import http from 'node:http';
 import https from 'node:https';
 
-const port = Number(process.env.PORT) || 3000;
+const port = Number(process.env.PORT) || 3333;
 const ask = (client) =>
   new Promise((resolve) => {
     const request = client.get({ host: '127.0.0.1', port, path: '/api/health', timeout: 4000, rejectUnauthorized: false }, (res) => {

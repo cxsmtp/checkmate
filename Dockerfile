@@ -1,7 +1,7 @@
 # Checkmate event scanner — one image for Docker and Podman (amd64 and arm64).
 # Everything it keeps (registrations, settings, samples, installed updates) lives in /data.
 #
-#   docker run -d --name checkmate -p 3000:3000 -v checkmate-data:/data ghcr.io/cxsmtp/checkmate:latest
+#   docker run -d --name checkmate -p 3333:3333 -v checkmate-data:/data ghcr.io/cxsmtp/checkmate:latest
 #
 # The first start prints the admin password in the container log:
 #   docker logs checkmate
@@ -68,7 +68,7 @@ VOLUME ["/data"]
 
 ENV NODE_ENV=production \
     HOST=0.0.0.0 \
-    PORT=3000 \
+    PORT=3333 \
     DATA_DIR=/data \
     TZ=UTC
 
@@ -77,7 +77,7 @@ LABEL org.opencontainers.image.title="Checkmate event scanner" \
       io.checkmate.version="${APP_VERSION}"
 
 USER node
-EXPOSE 3000
+EXPOSE 3333
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD ["node", "scripts/healthcheck.mjs"]

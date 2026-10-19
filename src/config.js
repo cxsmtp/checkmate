@@ -23,7 +23,7 @@ const list = (v) =>
 
 export const config = {
   version: pkg.version,
-  port: Number(env.PORT ?? 3000),
+  port: Number(env.PORT ?? 3333),
   host: env.HOST ?? '0.0.0.0',
   dataDir,
   trustProxy: env.TRUST_PROXY ?? 'loopback',
