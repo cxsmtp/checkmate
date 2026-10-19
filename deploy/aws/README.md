@@ -54,7 +54,7 @@ Another port: change `PublishPort=3333:3000` in `checkmate.container` and `rever
 ## 4. Configure the booth (in the browser)
 
 1. `https://<DOMAIN>/admin` → **Settings → Configure from a .env file**: drop a file with `CX_API_KEY` and `SMTP_*` (or type them in and press **Test**). The connection card shows the tenant and region read from the key.
-2. **Mode** → *live*.
+2. Nothing to switch for real scans: **Scans** is *Automatic*, so they run on your tenant as soon as the key connects (the connection card says *Real (Checkmarx One)*). AI Triage & Remediation are *Simulated* on the real findings until you set them to *Live* under Settings → AI Triage & Remediation.
 3. **Profiles** → import the invitee CSV. **Branding** → logo, names, city; city photographs are fetched at first start.
 4. Run one real scan on a sample repository to confirm the Fusion service base paths on your tenant (Settings → Fusion if the probe reports them unavailable).
 

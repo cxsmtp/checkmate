@@ -35,7 +35,8 @@ services:
     environment:
       # Everything below can also be set from the admin panel (/admin → Settings).
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}           # address visitors use, put in invitation emails
-      CX_MODE: ${CX_MODE:-demo}                       # demo | live
+      CX_MODE: ${CX_MODE:-auto}                       # auto (live once the key connects) | live | demo
+      ASSIST_MODE: ${ASSIST_MODE:-simulated}          # AI Triage & Remediation: simulated | live
       CX_API_KEY: ${CX_API_KEY:-}                     # the only Checkmarx One setting needed (URLs derive from it)
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

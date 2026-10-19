@@ -57,7 +57,8 @@ export const SETTINGS = {
   'event.tagline': { env: 'EVENT_TAGLINE', default: 'See what your scanner is missing.' },
   'event.venue': { env: 'EVENT_VENUE', default: '' },
   publicBaseUrl: { env: 'PUBLIC_BASE_URL', default: '' },
-  mode: { env: 'CX_MODE', default: 'demo', options: ['demo', 'live'] },
+  // auto: real Checkmarx One scans as soon as the API key connects, the demo otherwise.
+  mode: { env: 'CX_MODE', default: 'auto', options: ['auto', 'live', 'demo'] },
   sampleReuseHours: { env: 'SAMPLE_REUSE_HOURS', default: 24, type: 'number' },
   defaultCity: { env: 'DEFAULT_CITY', default: 'auto', options: ['auto', ...CITY_THEMES] },
   askLocation: { env: 'ASK_LOCATION', default: true, type: 'boolean' },
@@ -110,6 +111,8 @@ export const SETTINGS = {
 
   // Closing the loop: Checkmarx One AI Triage and AI Remediation from the outcome page
   'assist.enabled': { env: 'ASSIST_ENABLED', default: true, type: 'boolean' },
+  // simulated: the same stages on the real findings, no AI credits spent; live: Checkmarx One AI Triage and Remediation.
+  'assist.mode': { env: 'ASSIST_MODE', default: 'simulated', options: ['simulated', 'live'] },
   'assist.pollIntervalMs': { env: 'ASSIST_POLL_INTERVAL_MS', default: 8000, type: 'number' },
   'assist.timeoutMs': { env: 'ASSIST_TIMEOUT_MS', default: 30 * 60 * 1000, type: 'number' },
 
@@ -279,6 +282,11 @@ function writeSaved(saved) {
 }
 
 /** Settings for the admin panel: secrets are reported as set / not set, never returned. */
+/** Whether scans run on the Checkmarx One tenant (live) or are simulated (demo). */
+export const isLive = () => config.mode === 'live' || (config.mode === 'auto' && Boolean(config.connection));
+/** Whether AI Triage and Remediation call Checkmarx One (only when switched on, and only with live scans). */
+export const assistLive = () => isLive() && config.assist.mode === 'live';
+
 export function publicSettings() {
   const out = {};
   for (const [key, def] of Object.entries(SETTINGS)) {
@@ -289,6 +297,8 @@ export function publicSettings() {
     ? { tenant: config.connection.tenant, region: config.connection.regionLabel, baseUrl: config.connection.baseUrl, iamUrl: config.connection.iamUrl, expiresAt: config.connection.expiresAt }
     : null;
   out.connectionError = config.connectionError;
+  out.effectiveMode = isLive() ? 'live' : 'demo';
+  out.assistLive = assistLive();
   return out;
 }
 

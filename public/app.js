@@ -582,7 +582,7 @@ function loopPanel(s, id, key, rerender) {
   return h('section', { class: 'panel loop' },
     h('div', { class: 'spread', style: 'align-items:flex-start' },
       h('div', {}, h('span', { class: 'eyebrow' }, 'Close the loop'), h('h2', {}, 'Found. Triaged. Fixed.'), h('p', { class: 'hint', style: 'max-width:70ch' }, 'Finding new classes of issues is half the story. Checkmarx One AI triages every finding for real exploitability and writes the fix — the same tenant, one click each, no tickets in between.')),
-      h('span', { class: 'tag fusion' }, s.mode === 'demo' ? 'Checkmarx One AI · demo' : 'Checkmarx One AI')),
+      h('span', { class: `tag ${s.assistSimulated ? '' : 'fusion'}` }, s.assistSimulated ? 'Checkmarx One AI · simulation' : 'Checkmarx One AI')),
     h('div', { class: 'loop-strip' },
       stage('Found', `${c0(s)}`, `${s.summary?.fusionOnly ?? 0} only by Fusion · ${s.summary?.total ?? 0} in all`, 'done'),
       h('span', { class: 'loop-arrow' }, '→'),

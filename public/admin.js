@@ -478,7 +478,7 @@ async function cityPhotos() {
 const SECTIONS = [
   { id: 'cxone', title: 'Checkmarx One', intro: 'One API key is enough: the tenant, region, IAM and API addresses are read from the key itself. Scans and results are fetched with it; nothing else talks to the tenant.', fields: [
     ['checkmarx.apiKey', 'API key', { secret: true, span: true, hint: 'Checkmarx One → Settings → Identity and access → API keys (refresh token)' }],
-    ['mode', 'Mode', { options: [['live', 'Live — scans run on the tenant'], ['demo', 'Demo — sample findings, no tenant']] }],
+    ['mode', 'Scans', { options: [['auto', 'Automatic — real Checkmarx One scans once the API key connects'], ['live', 'Live — always the tenant'], ['demo', 'Demo — simulated findings, no tenant']] }],
     ['checkmarx.projectPrefix', 'Project name prefix', { hint: 'projects created for visitors are named prefix + owner/repo' }],
     ['checkmarx.defaultBranch', 'Default branch'],
     ['checkmarx.githubToken', 'GitHub token for private repositories', { secret: true }],
@@ -506,7 +506,8 @@ const SECTIONS = [
     ['fusion.resultsPath', 'Fusion Results base path', { placeholder: 'empty: probe /api/fusion-results, /api/fusion/results, …' }],
     ['fusion.timeoutMs', 'Correlation timeout (ms)', { type: 'number' }],
   ] },
-  { id: 'assist', title: 'AI Triage & Remediation', intro: 'The one-click close of the loop on the outcome page: AI Triage (POST /api/ai-triage/triage, verdicts read back per vulnerability group) and AI Remediation (POST /api/remediation/remediate, fixes read from remediation-details). In live mode these spend the tenant\'s AI credits; in demo mode the same stages run against a simulation.', fields: [
+  { id: 'assist', title: 'AI Triage & Remediation', intro: 'The one-click close of the loop on the outcome page: AI Triage (POST /api/ai-triage/triage, verdicts read back per vulnerability group) and AI Remediation (POST /api/remediation/remediate, fixes read from remediation-details). Simulated by default: the same stages run on the real scan findings without calling Checkmarx One AI. Switch Mode to Live to triage and fix for real (spends the tenant\'s AI credits).', fields: [
+    ['assist.mode', 'Mode', { options: [['simulated', 'Simulated — the same steps on the real findings, no AI credits spent'], ['live', 'Live — Checkmarx One AI Triage and AI Remediation (spends AI credits)']] }],
     ['assist.enabled', 'Show Triage with AI and Remediate with AI on the outcome page', { checkbox: true }],
     ['assist.pollIntervalMs', 'Poll interval (ms)', { type: 'number' }],
     ['assist.timeoutMs', 'Time limit per run (ms)', { type: 'number' }],
@@ -544,7 +545,8 @@ async function settings() {
       h('div', {}, h('span', {}, 'Region'), h('b', {}, c?.region ?? '—')),
       h('div', {}, h('span', {}, 'API'), h('b', {}, c?.baseUrl ?? '—')),
       h('div', {}, h('span', {}, 'Key expires'), h('b', {}, c?.expiresAt ? fmt(c.expiresAt) : '—')),
-      h('div', {}, h('span', {}, 'Mode'), h('b', { class: s.mode === 'live' ? '' : 'muted' }, s.mode === 'live' ? 'Live' : 'Demo')),
+      h('div', {}, h('span', {}, 'Scans'), h('b', { class: s.effectiveMode === 'live' ? '' : 'muted' }, s.effectiveMode === 'live' ? 'Real (Checkmarx One)' : 'Demo')),
+      h('div', {}, h('span', {}, 'AI Triage & Remediation'), h('b', { class: s.assistLive ? '' : 'muted' }, s.assistLive ? 'Live' : 'Simulated')),
       ...(s.connectionError ? [h('div', { style: 'grid-column:1/-1' }, h('span', {}, 'Problem'), h('b', { class: 'danger' }, s.connectionError))] : []));
   };
   drawConn();
