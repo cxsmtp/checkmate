@@ -72,7 +72,7 @@ export function buildOutcome(fusionOnly, others, { profile = {}, repoName = 'thi
   let headline;
   if (!all.length) headline = `No security findings were reported for ${repoName} on this scan.`;
   else if (fusionOnly.length) headline = `${plural(fusionOnly.length, 'risk')} in ${repoName} that rule-based scanning could not see${seriousFusion ? ` — ${seriousFusion} critical or high` : ''}. Every one can be triaged and fixed with AI today.`;
-  else headline = `Fusion agreed with the rule-based engines on ${repoName}: ${plural(all.length, 'finding')}, none that only Fusion saw.`;
+  else headline = `Fusion agreed with rule-based scanning on ${repoName}: ${plural(all.length, 'finding')}, none that only Fusion saw.`;
 
   const verdict = !all.length
     ? 'Nothing to act on from this scan. Keep Fusion on for the next change: logic flaws usually arrive with new features.'
@@ -85,7 +85,7 @@ export function buildOutcome(fusionOnly, others, { profile = {}, repoName = 'thi
   if (sev.CRITICAL) firstMoves.push(`Fix the ${plural(sev.CRITICAL, 'critical finding')} before the next release.`);
   if (others.some((f) => f.engine === 'secrets')) firstMoves.push('Rotate every exposed secret today and move it to a secrets manager.');
   if (others.some((f) => f.engine === 'sca' && f.recommendedVersion)) firstMoves.push('Upgrade the open-source packages that already have a fixed version.');
-  if (confirmed) firstMoves.push(`Start with the ${plural(confirmed, 'finding')} both engines agree on: highest confidence, no triage needed.`);
+  if (confirmed) firstMoves.push(`Start with the ${plural(confirmed, 'finding')} Fusion confirmed independently: highest confidence, no triage needed.`);
   firstMoves.push(`Put ${profile.fusion === false ? 'Checkmarx One' : 'Checkmarx One with Fusion'} in the pipeline for ${repoName} so the next change is scanned the same way.`);
 
   return {

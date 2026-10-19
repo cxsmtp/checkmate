@@ -33,9 +33,8 @@ async function api(path, body, method = body ? 'POST' : 'GET') {
 }
 
 const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'];
-const SCANNERS = [['fusion', 'Fusion'], ['sast', 'SAST'], ['sca', 'SCA'], ['kics', 'IaC Security'], ['secrets', 'Secret Detection'], ['apisec', 'API Security'], ['containers', 'Containers']];
-const scannerLabel = (e) => SCANNERS.find(([k]) => k === e)?.[1] ?? e.toUpperCase();
-const ENGINE_WORDS = { sast: 'Reading source code for data flows', sca: 'Checking open-source packages', kics: 'Reviewing infrastructure as code', apisec: 'Mapping API endpoints', containers: 'Inspecting container images', microengines: 'Looking for secrets and repo health', ai: 'Fusion is reasoning about the application' };
+// What a visitor sees: Fusion, or the rule-based scanning it goes beyond (engine names are not the point).
+const foundBy = (f) => (f.engine === 'fusion' ? '✦ Fusion' : 'Rule-based scanning');
 const fmtDate = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '');
 const titleCase = (s) => String(s || '').toLowerCase().replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase());
 const initialsOf = (name) => String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
@@ -364,7 +363,7 @@ async function renderDetails() {
   const addPerson = () => {
     const email = addEmail.value.trim().toLowerCase();
     if (!email) return;
-    if (!team.some((t) => t.email === email)) team.push({ name: addName.value.trim(), email, role: 'Operations' });
+    if (!team.some((t) => t.email === email)) team.push({ name: addName.value.trim() || email.split('@')[0].split(/[._+-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' '), email, role: 'Operations' });
     addName.value = ''; addEmail.value = ''; renderTeam(); addName.focus();
   };
   addEmail.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addPerson()));
@@ -386,7 +385,6 @@ async function renderDetails() {
   const models = opts.models ?? [];
   let llmModel = models.find((m) => m.default)?.key ?? models[0]?.key ?? '';
   const modelSel = models.length > 1 ? h('select', { 'aria-label': 'Fusion model', onchange: (e) => { llmModel = e.target.value; } }, models.map((m) => h('option', { value: m.key, selected: m.key === llmModel }, m.label))) : null;
-  const engines = (opts.engines ?? []).map((e) => e.label);
 
   setTeam(null);
   const form = h('form', { class: 'details one', novalidate: true });
@@ -406,8 +404,8 @@ async function renderDetails() {
     h('div', { class: 'panel go' },
       h('span', { class: 'eyebrow' }, 'Checkmarx One'),
       h('h3', {}, 'Find it, prove it, fix it'),
-      h('div', { class: 'scan-facts' }, h('span', { class: 'tag fusion' }, '✦ Fusion'), engines.map((e) => h('span', { class: 'tag' }, e))),
-      h('p', { class: 'hint' }, 'Fusion reasons about the whole application; the engines cover the known patterns. AI then triages and fixes what is real.'),
+      h('div', { class: 'scan-facts' }, h('span', { class: 'tag fusion' }, '✦ Checkmarx Fusion')),
+      h('p', { class: 'hint' }, 'Fusion reasons about your whole application and finds what rules cannot describe. AI then proves what is real and writes the fixes.'),
       modelSel ? h('label', { class: 'field' }, h('span', {}, 'Fusion model ', h('small', {}, opts.source === 'tenant' ? 'from your tenant' : '')), modelSel) : null,
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inviteNow', checked: true }), 'Email my team the outcome link.'),
       h('div', { class: 'stack', style: 'margin-top:auto;gap:8px' },
@@ -450,12 +448,13 @@ async function renderDetails() {
           const slot = form.querySelector(`[data-error="${name}"]`);
           if (slot) { slot.textContent = msg; continue; }
           const input = form.elements[name];
-          if (!input) continue;
+          if (!input) { errBox.dataset.extra = `${errBox.dataset.extra ?? ''} ${msg}`; continue; }
           if (input.closest('[hidden]')) input.closest('[hidden]').hidden = false;
           input.classList.add('invalid'); input.after(h('span', { class: 'field-error' }, msg)); first ??= input;
         }
         if (first) first.focus();
-        errBox.textContent = 'Please check the highlighted fields.';
+        errBox.textContent = first ? 'Please check the highlighted fields.' : (errBox.dataset.extra || 'Please check the details above.').trim();
+        delete errBox.dataset.extra;
       } else errBox.textContent = err.message;
     }
   });
@@ -470,7 +469,7 @@ async function renderDetails() {
 // ---------------------------------------------------------------------------
 let pollTimer = null;
 let current = null;
-const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '', otab: 'overview', impactScope: 'fusion', repos: 1 };
+const ui = { scanner: 'fusion', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '', otab: 'overview', impactScope: 'fusion', repos: 1 };
 
 async function renderSession(id, key, { reload = true } = {}) {
   clearTimeout(pollTimer);
@@ -487,7 +486,7 @@ async function renderSession(id, key, { reload = true } = {}) {
   const activeName = document.activeElement?.name;
 
   if (s.stage === 'error') { setStep('scan'); app.replaceChildren(h('div', { class: 'panel error-panel', style: 'max-width:720px;margin:30px auto' }, h('h2', {}, 'The scan could not complete'), h('p', {}, s.error), h('p', { class: 'muted' }, 'The booth team has the details and will follow up with you.'), teamPanel(s, id, key))); }
-  else if (s.stage === 'options') { setStep('profile'); app.replaceChildren(h('div', { class: 'panel', style: 'max-width:720px;margin:30px auto;text-align:center' }, h('h2', {}, 'Reading your Checkmarx One tenant…'), h('p', { class: 'muted' }, 'Which engines it licenses, whether Fusion is on, and which models it offers.'))); pollTimer = setTimeout(() => renderSession(id, key), 1500); }
+  else if (s.stage === 'options') { setStep('profile'); app.replaceChildren(h('div', { class: 'panel', style: 'max-width:720px;margin:30px auto;text-align:center' }, h('h2', {}, 'Reading your Checkmarx One tenant…'), h('p', { class: 'muted' }, 'Whether Fusion is on, and which models it offers.'))); pollTimer = setTimeout(() => renderSession(id, key), 1500); }
   else if (s.stage === 'profile') { setStep('profile'); app.replaceChildren(renderProfile(s, id, key)); }
   else if (s.stage !== 'complete') { setStep('scan'); app.replaceChildren(theatre(s, id, key)); pollTimer = setTimeout(() => renderSession(id, key), 3000); }
   else { setStep('outcome'); app.replaceChildren(outcomeView(s, id, key, rerender)); if (s.assist?.triage?.status === 'running' || s.assist?.remediation?.status === 'running') pollTimer = setTimeout(() => renderSession(id, key), 2000); }
@@ -508,7 +507,6 @@ function renderProfile(s, id, key) {
     preview.replaceChildren(h('span', { class: 'k' }, 'POST /api/scans'), '\n', JSON.stringify({ type: 'git', handler: { repoUrl: s.repo.url, branch: s.branch || 'default' }, config: cfg }, null, 2));
   };
   renderPreview();
-  const engineBox = h('div', { class: 'engine-grid' }, o.engines.map((e) => h('label', { class: 'engine' }, h('input', { type: 'checkbox', checked: state.engines.has(e.key), onchange: (ev) => { ev.target.checked ? state.engines.add(e.key) : state.engines.delete(e.key); renderPreview(); } }), h('span', {}, e.label, h('small', {}, ENGINE_WORDS[e.key] || '')))));
   const fusionSwitch = h('label', { class: 'switch' }, h('input', { type: 'checkbox', checked: state.fusion, disabled: !o.fusion.available, onchange: (ev) => { state.fusion = ev.target.checked; modelSeg.hidden = !state.fusion; renderPreview(); } }), h('span', { class: 'track' }), h('b', {}, state.fusion ? 'On' : 'Off'));
   fusionSwitch.querySelector('input').addEventListener('change', (ev) => { fusionSwitch.querySelector('b').textContent = ev.target.checked ? 'On' : 'Off'; });
   const modelSeg = h('div', { class: 'seg', hidden: !state.fusion, role: 'radiogroup', 'aria-label': 'Model' }, o.models.length ? o.models.map((m) => h('label', {}, h('input', { type: 'radio', name: 'model', value: m.key, checked: m.key === state.llmModel, onchange: () => { state.llmModel = m.key; renderPreview(); } }), h('span', {}, m.label), h('span', { class: 'k' }, m.key))) : h('p', { class: 'hint' }, 'The tenant uses its default model.'));
@@ -523,10 +521,7 @@ function renderProfile(s, id, key) {
   setTitle(`How should we scan ${s.repo.owner}/${s.repo.repo}?`, o.source === 'tenant' ? `Fetched from your Checkmarx One tenant · ${o.region}` : o.source === 'demo' ? 'Demo tenant: the options a tenant typically offers' : 'Tenant defaults', 'Scan');
   return h('div', { class: 'profile-grid' },
     h('div', { class: 'panel' },
-      h('h4', {}, 'Engines'), h('p', { class: 'hint' }, 'What your tenant licenses. The defaults are what we recommend for a first look.'),
       o.warning ? h('p', { class: 'error' }, `Could not read the tenant: ${o.warning}. Showing defaults.`) : null,
-      engineBox,
-      presetSel ? h('label', { class: 'field', style: 'margin-top:14px' }, h('span', {}, 'SAST preset'), presetSel) : null,
       h('div', { class: 'repo-line' }, h('h4', {}, 'Repository'), h('p', { class: 'mono' }, s.repo.url), h('p', { class: 'muted' }, `Branch ${s.branch || 'default'} · for ${s.customer.company || s.customer.name}`))),
     h('div', { class: 'panel fusion-card' },
       h('div', { class: 'spread' }, h('span', { class: 'tag fusion' }, '✦ Fusion'), fusionSwitch),
@@ -543,7 +538,12 @@ function theatre(s, id, key) {
   const started = new Date(s.createdAt).getTime();
   const secs = Math.max(0, Math.floor((Date.now() - started) / 1000));
   const engines = s.cx?.engines?.length ? s.cx.engines : (s.profile?.engines ?? []).map((name) => ({ name, status: 'Queued' })).concat(s.profile?.fusion ? [{ name: 'ai', status: 'Queued' }] : []);
-  const stageWords = { queued: 'Queued on Checkmarx One', 'creating-project': 'Creating the project and application', 'starting-scan': 'Starting the scan', scanning: 'Engines are running', correlating: 'Fusion is correlating across the application', 'fetching-results': 'Collecting results', explaining: 'Writing the outcome' };
+  // Two lines, not a list of engines: the rule-based baseline, and Fusion.
+  const rules = engines.filter((e) => e.name !== 'ai').map((e) => String(e.status));
+  const ruleStatus = !rules.length ? 'Queued' : rules.some((x) => /running/i.test(x)) ? 'Running' : rules.every((x) => /completed|partial/i.test(x)) ? 'Completed' : rules.some((x) => /failed/i.test(x)) && rules.every((x) => !/queued/i.test(x)) ? 'Completed' : rules.some((x) => /completed/i.test(x)) ? 'Running' : 'Queued';
+  const fusionRow = engines.find((e) => e.name === 'ai');
+  const lines = [['Rule-based scanning', 'the known patterns, as every scanner does', ruleStatus], ...(fusionRow ? [['✦ Fusion', 'reasoning about the whole application', fusionRow.status]] : [])];
+  const stageWords = { queued: 'Queued on Checkmarx One', 'creating-project': 'Creating the project and application', 'starting-scan': 'Starting the scan', scanning: 'Checkmarx One is reading your application', correlating: 'Fusion is correlating across the application', 'fetching-results': 'Collecting results', explaining: 'Writing the outcome' };
   const fs = s.fusionStage;
   const pct = s.stage === 'correlating' ? (fs?.stage ?? 5) : ['fetching-results', 'explaining'].includes(s.stage) ? 100 : 0;
   setTitle(`Scanning ${s.repo.owner}/${s.repo.repo}`, stageWords[s.stage] ?? s.stage, 'Running');
@@ -556,10 +556,10 @@ function theatre(s, id, key) {
     h('div', { class: 'stack' },
       h('div', { class: 'panel' },
         h('div', { class: 'spread' }, h('div', {}, h('span', { class: 'eyebrow' }, stageWords[s.stage] ?? s.stage), h('h2', {}, `Scanning ${s.repo.owner}/${s.repo.repo}`)), h('span', { class: 'elapsed' }, `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} elapsed`)),
-        h('div', { class: 'engines-live' }, engines.map((e) => h('div', { class: `eng-row ${String(e.status).toLowerCase()}` }, h('span', { class: 'dot' }), h('span', {}, h('b', {}, e.name === 'ai' ? 'Fusion' : scannerLabel(e.name === 'microengines' ? 'secrets' : e.name)), h('span', { class: 'muted' }, ` — ${ENGINE_WORDS[e.name] || ''}`)), h('span', { class: 'st' }, e.status))))),
+        h('div', { class: 'engines-live' }, lines.map(([name, words, status]) => h('div', { class: `eng-row ${String(status).toLowerCase()}` }, h('span', { class: 'dot' }), h('span', {}, h('b', {}, name), h('span', { class: 'muted' }, ` — ${words}`)), h('span', { class: 'st' }, status))))),
       s.profile?.fusion ? h('div', { class: 'panel fusion-card' },
-        h('div', { class: 'fusion-live' }, ring, h('div', {}, h('span', { class: 'tag fusion' }, '✦ Fusion correlation'), h('h3', {}, fs?.description || (s.stage === 'correlating' ? 'Starting…' : 'Waits for the engines to finish')), h('p', { class: 'narrative' }, 'Fusion maps the application\'s microservices and cloud resources, then follows each finding to see whether an attacker can really reach it. Scores go ', h('b', {}, 'up'), ' for exploitable paths and ', h('b', {}, 'down'), ' for dead ends — so the list you get is the one worth your time.')))) : null,
-      h('div', { class: 'panel tight' }, h('h4', {}, 'This scan'), h('div', { class: 'scan-facts' }, (s.profile?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), s.profile?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${s.profile.llmModel || 'default model'}`) : null, s.profile?.presetName ? h('span', { class: 'tag' }, s.profile.presetName) : null))),
+        h('div', { class: 'fusion-live' }, ring, h('div', {}, h('span', { class: 'tag fusion' }, '✦ Fusion correlation'), h('h3', {}, fs?.description || (s.stage === 'correlating' ? 'Starting…' : 'Begins when the code has been read')), h('p', { class: 'narrative' }, 'Fusion maps the application\'s microservices and cloud resources, then follows each finding to see whether an attacker can really reach it. Scores go ', h('b', {}, 'up'), ' for exploitable paths and ', h('b', {}, 'down'), ' for dead ends — so the list you get is the one worth your time.')))) : null,
+      s.profile?.fusion ? h('div', { class: 'panel tight' }, h('h4', {}, 'This scan'), h('div', { class: 'scan-facts' }, h('span', { class: 'tag fusion' }, `✦ Checkmarx Fusion · ${s.profile.llmModel || 'default model'}`))) : null),
     h('div', { class: 'summary-side' }, postcard(), h('div', { class: 'panel tight' }, h('h4', {}, 'While you wait'), h('p', { class: 'hint', style: 'margin:0' }, 'Invite the people who should see the outcome: Team, in the title bar. They get a private link to this page.'))));
 }
 
@@ -605,7 +605,7 @@ function outcomeView(s, id, key, rerender) {
       h('div', {},
         h('h1', {}, o.headline),
         h('p', { class: 'verdict' }, o.verdict),
-        h('div', { class: 'scan-facts' }, (o.scanned?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
+        h('div', { class: 'scan-facts' }, o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
         h('div', { class: 'row', style: 'margin-top:14px' },
           s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => fixAll(s, id, key, 'fusion', go) }, (s.assist?.remediation?.summary?.fixed ? '✦ See the fixes →' : `✦ Fix ${c.fusionOnly ? `the ${c.fusionOnly}` : 'them'} with AI →`)) : null,
           h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`)))),
@@ -783,19 +783,19 @@ function resultsView(s, id, key, rerender) {
   const findings = allFindings(s);
   const list = filtered(s);
   const selected = findings.find((f) => f.id === ui.selected) ?? null;
-  const counts = Object.fromEntries(SCANNERS.map(([k]) => [k, findings.filter((f) => f.engine === k).length]));
-  const ran = SCANNERS.filter(([k]) => k !== 'fusion' && counts[k]).map(([, l]) => l);
+  const fusionCount = findings.filter((f) => f.engine === 'fusion').length;
+  const ran = ['Rule-based scanning'];
   return h('section', {},
-    h('nav', { class: 'cx-tabs', 'aria-label': 'Scanners' }, [['all', 'All results', findings.length], ...SCANNERS.filter(([k]) => counts[k]).map(([k, l]) => [k, l, counts[k]])].map(([k, l, n]) =>
+    h('nav', { class: 'cx-tabs', 'aria-label': 'Findings' }, [['fusion', 'Found by Fusion', fusionCount], ['all', 'Everything', findings.length]].map(([k, l, n]) =>
       h('button', { type: 'button', class: `cx-tab ${ui.scanner === k ? 'active' : ''} ${k === 'fusion' ? 'fusion' : ''}`, onclick: () => { ui.scanner = k; rerender(); } }, k === 'fusion' ? '✦ ' : '', l, h('span', { class: 'count' }, n)))),
     h('div', { class: `cx-workspace ${selected ? 'with-drawer' : ''}` },
       h('aside', { class: 'filters' },
         h('div', { class: 'filter-group' }, h('input', { type: 'search', placeholder: 'Search vulnerabilities', value: ui.search, 'aria-label': 'Search', oninput: (e) => { ui.search = e.target.value; clearTimeout(ui.t); ui.t = setTimeout(() => { rerender(); document.querySelector('.filters input[type=search]')?.focus(); }, 250); } })),
-        h('div', { class: 'filter-group' }, h('h4', {}, 'Severity'), SEVERITIES.map((sev) => { const n = findings.filter((f) => f.severity === sev).length; return n ? h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.severities.has(sev), onchange: (e) => { e.target.checked ? ui.severities.add(sev) : ui.severities.delete(sev); rerender(); } }), h('span', { class: `sev ${sev.toLowerCase()}` }, h('i'), titleCase(sev)), h('span', { class: 'count' }, n)) : null; })),
+        h('div', { class: 'filter-group' }, h('h4', {}, 'Severity'), SEVERITIES.map((sev) => { const n = findings.filter((f) => f.severity === sev && (ui.scanner !== 'fusion' || f.engine === 'fusion')).length; return n ? h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.severities.has(sev), onchange: (e) => { e.target.checked ? ui.severities.add(sev) : ui.severities.delete(sev); rerender(); } }), h('span', { class: `sev ${sev.toLowerCase()}` }, h('i'), titleCase(sev)), h('span', { class: 'count' }, n)) : null; })),
         h('div', { class: 'filter-group' }, h('h4', {}, 'Detection'), h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.fusionOnly, onchange: (e) => { ui.fusionOnly = e.target.checked; rerender(); } }), 'Found only by Fusion', h('span', { class: 'count' }, s.summary.fusionOnly)), h('p', { class: 'filter-note' }, `${s.summary.confirmedByFusion ?? 0} rule-based finding(s) also confirmed by Fusion.`))),
       h('div', { class: 'table-wrap' }, h('table', { class: 'cx' },
-        h('thead', {}, h('tr', {}, ['Severity', 'Vulnerability', 'Scanner', 'Language', 'Location', 'Risk', 'AI', 'State'].map((t) => h('th', { scope: 'col' }, t)))),
-        h('tbody', {}, list.length ? list.map((f) => row(f, rerender, s)) : h('tr', {}, h('td', { colspan: 8, class: 'empty' }, 'No results match these filters.'))))),
+        h('thead', {}, h('tr', {}, ['Severity', 'Vulnerability', 'Language', 'Location', 'Risk', 'AI', 'State'].map((t) => h('th', { scope: 'col' }, t)))),
+        h('tbody', {}, list.length ? list.map((f) => row(f, rerender, s)) : h('tr', {}, h('td', { colspan: 7, class: 'empty' }, 'No results match these filters.'))))),
       selected ? drawer(selected, ran, rerender) : null));
 }
 function row(f, rerender, s) {
@@ -805,8 +805,8 @@ function row(f, rerender, s) {
   const open = () => { ui.selected = f.id; ui.tab = null; rerender(); };
   return h('tr', { class: `${f.fusionOnly ? 'fusion-row' : ''} ${ui.selected === f.id ? 'selected' : ''}`, tabindex: 0, onclick: open, onkeydown: (e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), open()) },
     h('td', {}, h('span', { class: `sev ${f.severity.toLowerCase()}` }, h('i'), titleCase(f.severity))),
-    h('td', {}, h('div', { class: 'vuln-name' }, f.explanation?.plainTitle || f.title, f.fusionOnly ? h('span', { class: 'tag fusion' }, '✦ Fusion only') : null, f.confirmedByFusion ? h('span', { class: 'tag ok' }, '✓ Both engines') : null), f.explanation?.plainTitle && f.explanation.plainTitle !== f.title ? h('div', { class: 'vuln-q' }, f.title) : null),
-    h('td', {}, scannerLabel(f.engine)), h('td', {}, f.language || '—'), h('td', { class: 'loc' }, location),
+    h('td', {}, h('div', { class: 'vuln-name' }, f.explanation?.plainTitle || f.title, f.fusionOnly ? h('span', { class: 'tag fusion' }, '✦ Fusion only') : null, f.confirmedByFusion ? h('span', { class: 'tag ok' }, '✓ Confirmed by Fusion') : null), f.explanation?.plainTitle && f.explanation.plainTitle !== f.title ? h('div', { class: 'vuln-q' }, f.title) : null),
+    h('td', {}, f.language || '—'), h('td', { class: 'loc' }, location),
     h('td', {}, f.correlation ? h('span', { class: `tag ${f.correlation.direction === 'raised' ? 'bad' : f.correlation.direction === 'lowered' ? 'ok' : ''}` }, `${f.correlation.direction === 'raised' ? '▲' : f.correlation.direction === 'lowered' ? '▼' : '•'} ${f.correlation.newRisk.toFixed(1)}`) : h('span', { class: 'muted' }, '—')),
     h('td', { class: 'ai-cell' }, v && v.status !== 'queued' ? (v.status === 'running' ? h('span', { class: 'tag busy' }, h('i'), 'Triaging') : verdictTag(v)) : null, fx && fx.status !== 'queued' ? (fx.status === 'running' ? h('span', { class: 'tag busy' }, h('i'), 'Fixing') : fx.status === 'done' ? h('span', { class: 'tag ok' }, '⚡ Fix ready') : h('span', { class: 'tag bad' }, 'Fix failed')) : null, !v && !fx ? h('span', { class: 'muted' }, '—') : null),
     h('td', {}, titleCase(f.state || 'TO_VERIFY')));
@@ -820,10 +820,10 @@ function drawer(f, ran, rerender) {
   const sec = (title, text) => (text ? h('div', { class: 'dsec' }, h('h4', {}, title), h('p', {}, text)) : null);
   let body;
   if (tab === 'fusion') body = [
-    f.fusionOnly ? h('div', { class: 'never' }, h('b', {}, 'Never reported by rule-based scanning'), h('p', {}, 'Every other engine ran on this code and none of them flagged it:'), h('div', { class: 'misses' }, (ran.length ? ran : ['SAST', 'SCA', 'IaC Security']).map((e) => h('span', {}, '✕ ', e)), h('span', { class: 'hit' }, '✓ Fusion'))) : null,
+    f.fusionOnly ? h('div', { class: 'never' }, h('b', {}, 'Never reported by rule-based scanning'), h('p', {}, 'Rule-based scanning ran on the same code and did not flag it:'), h('div', { class: 'misses' }, ran.map((e) => h('span', {}, '✕ ', e)), h('span', { class: 'hit' }, '✓ Fusion'))) : null,
     sec('What Fusion determined', f.fusionInsight || ex.whatItMeans),
-    f.correlation ? h('div', { class: 'dsec' }, h('h4', {}, 'Risk score, after correlation'), h('div', { class: 'corr-row', style: 'margin-top:4px' }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.correlation.direction === 'raised' ? 'Raised: an exploitable path exists' : f.correlation.direction === 'lowered' ? 'Lowered: no exploitable path found' : 'Unchanged'), h('small', {}, f.correlation.reason), f.correlation.with ? h('small', {}, `Correlated with ${f.correlation.with}`) : null))) : null,
-    f.fusionOnly ? sec('Why the deterministic engines did not report it', ex.whyMissed || ex.whyFusionFoundIt) : null,
+    f.correlation ? h('div', { class: 'dsec' }, h('h4', {}, 'Risk score, after correlation'), h('div', { class: 'corr-row', style: 'margin-top:4px' }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.correlation.direction === 'raised' ? 'Raised: an exploitable path exists' : f.correlation.direction === 'lowered' ? 'Lowered: no exploitable path found' : 'Unchanged'), h('small', {}, f.correlation.reason), null))) : null,
+    f.fusionOnly ? sec('Why rule-based scanning did not report it', ex.whyMissed || ex.whyFusionFoundIt) : null,
     f.fusionOnly && ex.whyCaught ? sec('Why Checkmarx Fusion found it', ex.whyCaught) : null,
     f.fusionOnly && ex.evidence?.length ? h('ul', { class: 'evidence' }, ex.evidence.map((e) => h('li', {}, e))) : null,
     sec('Business impact', ex.businessImpact), sec('How to fix', ex.howToFix),
@@ -840,10 +840,10 @@ function drawer(f, ran, rerender) {
     h('div', { class: 'row' }, h('button', { type: 'button', class: 'sm', onclick: (e) => { navigator.clipboard?.writeText((fx.changes ?? []).map((c) => `--- a/${c.path}\n+++ b/${c.path}\n${c.diff}`).join('\n')).then(() => { e.target.textContent = 'Copied'; }); } }, 'Copy patch'), h('span', { class: 'muted', style: 'font-size:12.5px' }, 'Applies with git apply in the repository.'))];
   else if (tab === 'plain') body = [sec('What it means', ex.whatItMeans), sec('Business impact', ex.businessImpact), sec('How to fix', ex.howToFix), ex.urgency ? h('p', { class: 'urgency' }, ex.urgency) : null];
   else if (tab === 'vector') body = [vector(f)];
-  else body = h('dl', { class: 'info' }, [['Vulnerability', f.title], ['Scanner', scannerLabel(f.engine)], ['Severity', f.severity], ['CWE', f.cwe && `CWE-${f.cwe}`], ['CVE', f.cve], ['CVSS', f.cvss], ['Language', f.language], ['Package', f.packageName], ['Fixed in', f.recommendedVersion], ['File', f.file && `${f.file}${f.line ? `:${f.line}` : ''}`], ['Expected', f.expected], ['Actual', f.actual], ['State', f.state], ['Status', f.status], ['First detected', f.firstFoundAt && fmtDate(f.firstFoundAt)], ['Description', f.description]].filter(([, v]) => v).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
+  else body = h('dl', { class: 'info' }, [['Vulnerability', f.title], ['Found by', foundBy(f)], ['Severity', f.severity], ['CWE', f.cwe && `CWE-${f.cwe}`], ['CVE', f.cve], ['CVSS', f.cvss], ['Language', f.language], ['Package', f.packageName], ['Fixed in', f.recommendedVersion], ['File', f.file && `${f.file}${f.line ? `:${f.line}` : ''}`], ['Expected', f.expected], ['Actual', f.actual], ['State', f.state], ['Status', f.status], ['First detected', f.firstFoundAt && fmtDate(f.firstFoundAt)], ['Description', f.description]].filter(([, v]) => v).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v)]));
   return h('aside', { class: `drawer ${f.fusionOnly ? 'fusion' : ''}`, 'aria-label': 'Result details' },
-    h('header', {}, h('div', {}, h('span', { class: `sev ${f.severity.toLowerCase()}` }, h('i'), titleCase(f.severity)), f.fusionOnly ? h('span', { class: 'tag fusion' }, '✦ Fusion only') : null, f.confirmedByFusion ? h('span', { class: 'tag ok' }, '✓ Both engines') : null), h('button', { type: 'button', class: 'close', 'aria-label': 'Close', onclick: () => { ui.selected = null; rerender(); } }, '×')),
-    h('h2', {}, ex.plainTitle || f.title), h('p', { class: 'sub' }, scannerLabel(f.engine), f.cwe ? ` · CWE-${f.cwe}` : '', f.cve ? ` · ${f.cve}` : ''),
+    h('header', {}, h('div', {}, h('span', { class: `sev ${f.severity.toLowerCase()}` }, h('i'), titleCase(f.severity)), f.fusionOnly ? h('span', { class: 'tag fusion' }, '✦ Fusion only') : null, f.confirmedByFusion ? h('span', { class: 'tag ok' }, '✓ Confirmed by Fusion') : null), h('button', { type: 'button', class: 'close', 'aria-label': 'Close', onclick: () => { ui.selected = null; rerender(); } }, '×')),
+    h('h2', {}, ex.plainTitle || f.title), h('p', { class: 'sub' }, foundBy(f), f.cwe ? ` · CWE-${f.cwe}` : '', f.cve ? ` · ${f.cve}` : ''),
     h('div', { class: 'dtabs', role: 'tablist' }, tabs.map(([k, l]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(k === tab), class: k === tab ? 'active' : '', onclick: () => { ui.tab = k; rerender(); } }, l))),
     h('div', {}, body));
 }

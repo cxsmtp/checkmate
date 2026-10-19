@@ -90,6 +90,8 @@ This document states everything Checkmate is required to do, in enough detail to
 7b.6. Sample repositories are scanned as soon as they are added (and when the tenant connects), so their results are ready the moment a visitor picks one; refreshed in the background after `SAMPLE_REUSE_HOURS` (168), one scan per sample at a time (`SAMPLES_AUTO_SCAN`).
 7b.7. Every Fusion-only finding carries, written at scan time: *Why the deterministic engines did not report it* (by kind of weakness), *Why Checkmarx Fusion found it* (with Fusion's own words), and the evidence (which engines ran, files on the path, steps, model).
 
+7b.8. Visitors never see engine names. Only **Fusion** is named; everything else is "rule-based scanning" (the running screen has two lines, Rule-based scanning and Fusion; results open on *Found by Fusion*, with *Everything* beside it; Fusion explanations speak of rule-based scanning). Engines remain an admin setting.
+
 ### 7c. Any city in the world
 
 7c.1. The visitor's city is found from the device's position (the browser asks once; OpenStreetMap Nominatim reverse geocoding at city level, coordinates never stored), else the time zone, or typed (`GET /api/places/search`). Only the city's key, name and country are kept with a registration.

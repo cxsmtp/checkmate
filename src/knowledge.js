@@ -163,7 +163,7 @@ export function templateExplanation(finding) {
 const MISSED = [
   {
     key: 'access', cwes: ['284', '285', '639', '862', '863', '269', '287', '306', '307', '384', '613', '640'], words: ['authoriz', 'authoris', 'access control', 'idor', 'privilege', 'authentication', 'session'],
-    missed: 'Rule-based SAST looks for something dangerous that is present — a tainted value reaching a risky call. A missing or incomplete permission check is an absence: there is no dangerous call to match, and whether a check is "enough" depends on who is meant to see the data, which no rule knows.',
+    missed: 'Rule-based scanning looks for something dangerous that is present — a tainted value reaching a risky call. A missing or incomplete permission check is an absence: there is no dangerous call to match, and whether a check is "enough" depends on who is meant to see the data, which no rule knows.',
     caught: 'Fusion reads the route, the handler and the data it returns together and asks what the code is meant to protect. It found data or an action a caller can reach without the check that should guard it — for example an object fetched by an identifier the client supplies, with nothing confirming it belongs to that caller.',
   },
   {
@@ -173,7 +173,7 @@ const MISSED = [
   },
   {
     key: 'injection', cwes: ['89', '77', '78', '94', '917', '611', '776', '943', '90', '643'], words: ['injection', 'sql', 'command', 'eval', 'template', 'xpath', 'ldap'],
-    missed: 'SAST rules describe each framework\'s sources, sinks and sanitisers. Here the input travels through code the rules have no model for — a helper, a wrapper or a dynamic call across files — so the flow breaks before it reaches a known sink, or a home-grown "sanitiser" is wrongly trusted.',
+    missed: 'Scanning rules describe each framework\'s sources, sinks and sanitisers. Here the input travels through code the rules have no model for — a helper, a wrapper or a dynamic call across files — so the flow breaks before it reaches a known sink, or a home-grown "sanitiser" is wrongly trusted.',
     caught: 'Fusion followed the value through every hop without needing a rule for each library, and judged that what happens to it on the way does not make it safe at the point it is used.',
   },
   {
@@ -208,11 +208,10 @@ const MISSED = [
   },
 ];
 const MISSED_DEFAULT = {
-  missed: 'Deterministic engines report only what a written rule describes. This weakness depends on how several parts of the application behave together, so no single rule matches it.',
+  missed: 'Rule-based scanning reports only what a written rule describes. This weakness depends on how several parts of the application behave together, so no single rule matches it.',
   caught: 'Fusion reasons about the application as a whole — code, services and cloud resources — instead of matching patterns, and found a path an attacker can use.',
 };
 
-const engineNames = { sast: 'SAST', sca: 'SCA', kics: 'IaC Security', apisec: 'API Security', containers: 'Container Security', microengines: 'Secret Detection' };
 
 /**
  * For a Fusion-only finding: { whyMissed, whyCaught, evidence[] } in plain words.
@@ -221,10 +220,9 @@ const engineNames = { sast: 'SAST', sca: 'SCA', kics: 'IaC Security', apisec: 'A
 export function fusionExplanation(finding, profile = {}) {
   const text = `${finding.title} ${finding.description} ${finding.cwe ?? ''}`.toLowerCase();
   const k = MISSED.find((m) => finding.cwe && m.cwes.includes(String(finding.cwe))) ?? MISSED.find((m) => m.words.some((w) => text.includes(w))) ?? MISSED_DEFAULT;
-  const engines = (profile.engines ?? ['sast', 'sca']).map((e) => engineNames[e] ?? e.toUpperCase());
   const files = [...new Set((finding.nodes ?? []).map((n) => n.fileName).filter(Boolean))];
   const evidence = [];
-  if (engines.length) evidence.push(`${engines.join(' and ')} ran on the same code${profile.presetName ? ` (preset ${profile.presetName})` : ''} and reported nothing at this location.`);
+  evidence.push('Rule-based scanning ran on the same code and reported nothing at this location.');
   if (files.length > 1) evidence.push(`The path crosses ${files.length} files: ${files.slice(0, 4).join(' → ')}${files.length > 4 ? ' → …' : ''}.`);
   else if (finding.file) evidence.push(`Found at ${finding.file}${finding.line ? `, line ${finding.line}` : ''}.`);
   if ((finding.nodes ?? []).length > 2) evidence.push(`${finding.nodes.length} steps from where the data enters to where it is used.`);
