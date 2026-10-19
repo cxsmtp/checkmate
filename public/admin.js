@@ -53,16 +53,31 @@ function dropZone(label, accept, onFile) {
   return zone;
 }
 
+// [key, label, subtitle, group, icon paths]
 const TABS = [
-  ['registrations', 'Registrations'],
-  ['profiles', 'Profiles'],
-  ['samples', 'Sample repositories'],
-  ['branding', 'Branding'],
-  ['settings', 'Settings'],
-  ['updates', 'Updates & integrity'],
-  ['activity', 'Activity'],
-  ['account', 'Account'],
+  ['registrations', 'Registrations', 'Every visitor, their team, their scan and its outcome', 'Event', ['M4 19V5', 'M4 19h16', 'M7 15l4-4 3 3 5-6']],
+  ['profiles', 'Profiles', 'The invitee directory behind the two-letter type-ahead', 'Event', ['M9 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7z', 'M2.5 20a6.5 6.5 0 0 1 13 0', 'M16 4.5a3.5 3.5 0 0 1 0 7', 'M18 14.5a6.5 6.5 0 0 1 3.5 5.5']],
+  ['samples', 'Sample repositories', 'For visitors without a repository of their own', 'Event', ['M6 3v12', 'M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M18 9a9 9 0 0 1-9 9']],
+  ['branding', 'Branding', 'Name, logo, colours, look, city photography', 'Set up', ['M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.6 0-.9-.6-1.4-.6-2.2 0-1 .8-1.7 1.8-1.7H17a4 4 0 0 0 4-4C21 6.8 17 3 12 3z', 'M7.5 11.5h.01', 'M10.5 7.5h.01', 'M15.5 8.5h.01']],
+  ['settings', 'Settings', 'Checkmarx One, scans, Fusion, AI assist, email — or upload a .env', 'Set up', ['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M4 12h2', 'M18 12h2', 'M12 4v2', 'M12 18v2', 'M6.3 6.3l1.4 1.4', 'M16.3 16.3l1.4 1.4', 'M6.3 17.7l1.4-1.4', 'M16.3 7.7l1.4-1.4']],
+  ['updates', 'Updates & integrity', 'Signed releases, auto-update, rollback', 'Set up', ['M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z', 'M9 12l2 2 4-4']],
+  ['activity', 'Activity', 'Sign-ins, changes, scans, AI runs', 'Set up', ['M8 6h13', 'M8 12h13', 'M8 18h13', 'M3 6h.01', 'M3 12h.01', 'M3 18h.01']],
+  ['account', 'Account', 'Your admin password', 'Set up', ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'M4 21a8 8 0 0 1 16 0']],
 ];
+const icon = (paths) => { const NS = 'http://www.w3.org/2000/svg'; const s = document.createElementNS(NS, 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); for (const d of paths) { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); s.append(p); } return s; };
+const setTitle = (title, sub = '', stage = '') => {
+  document.getElementById('page-title').textContent = title;
+  document.getElementById('page-sub').textContent = sub;
+  const chip = document.getElementById('page-stage'); chip.textContent = stage; chip.hidden = !stage;
+};
+const LOOK_KEY = 'checkmate-look';
+const readLook = () => { try { return localStorage.getItem(LOOK_KEY); } catch { return null; } };
+document.getElementById('theme-btn').onclick = () => {
+  const order = ['auto', 'light', 'dark'];
+  const next = order[(order.indexOf(document.documentElement.dataset.theme) + 1) % order.length];
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(LOOK_KEY, next); } catch {}
+};
 let tab = location.hash.slice(1) || 'registrations';
 let mustChangePassword = false;
 
@@ -72,7 +87,7 @@ async function applyBrand() {
     const b = c.branding ?? {};
     document.getElementById('brand-name').textContent = b.appName || 'Checkmate';
     document.title = `${b.appName || 'Checkmate'} · Admin`;
-    if (b.theme && b.theme !== 'auto') document.documentElement.dataset.theme = b.theme;
+    document.documentElement.dataset.theme = readLook() || b.theme || 'auto';
     if (b.accent && b.accent !== 'city') document.documentElement.dataset.accent = b.accent;
     if (b.accentColor) { document.documentElement.style.setProperty('--accent-light', b.accentColor); document.documentElement.style.setProperty('--accent-dark', b.accentColor); }
     const mark = document.getElementById('brand-mark');
@@ -85,6 +100,7 @@ async function applyBrand() {
 function renderLogin() {
   document.getElementById('logout').hidden = true;
   tabsEl.replaceChildren();
+  setTitle('Sign in', 'The booth team only', '');
   const m = msg();
   const form = h('form', { class: 'panel login' },
     h('span', { class: 'eyebrow' }, 'Admin console'),
@@ -110,8 +126,13 @@ async function render() {
   if (!me.signedIn) return renderLogin();
   mustChangePassword = me.mustChangePassword;
   document.getElementById('logout').hidden = false;
-  tabsEl.replaceChildren(...TABS.map(([k, label]) =>
-    h('button', { type: 'button', class: `${k === tab ? 'active' : ''} ${k === 'account' && mustChangePassword ? 'alert' : ''}`, onclick: () => { tab = k; location.hash = k; render(); } }, label)));
+  let group = '';
+  tabsEl.replaceChildren(...TABS.flatMap(([k, label, , grp, paths]) => {
+    const head = grp !== group ? h('p', { class: 'nav-group' }, h('i'), (group = grp)) : null;
+    return [head, h('button', { type: 'button', class: `tab ${k === tab ? 'active' : ''} ${k === 'account' && mustChangePassword ? 'alert' : ''}`, onclick: () => { tab = k; location.hash = k; render(); } }, icon(paths), h('span', {}, label))];
+  }).filter(Boolean));
+  const [, tLabel, tSub, tGroup] = TABS.find(([k]) => k === tab) ?? TABS[0];
+  setTitle(tLabel, tSub, tGroup);
   const body = h('div', {}, h('p', { class: 'muted' }, 'Loading…'));
   root.replaceChildren(body);
   const views = { registrations, profilesView, samples, branding, settings, updates, activity, account };
@@ -373,7 +394,7 @@ async function branding() {
     const accent = d['branding.accentColor'].value;
     preview.style.setProperty('--accent-dark', accent || '');
   };
-  let accentChoice = s['branding.accent'] ?? 'city';
+  let accentChoice = s['branding.accent'] ?? 'ink';
   const swatches = h('div', { class: 'swatches' }, ACCENTS.map(([k, label]) => h('button', { type: 'button', title: label, 'aria-label': label, class: k === accentChoice ? 'active' : '', style: `background:${ACCENT_SWATCH[k]}`, onclick: (e) => { accentChoice = k; swatches.querySelectorAll('button').forEach((b) => b.classList.toggle('active', b === e.currentTarget)); } })));
   form.append(
     h('h2', {}, 'Branding'),
@@ -390,7 +411,7 @@ async function branding() {
           h('input', { name: 'branding.accentColorPicker', type: 'color', value: s['branding.accentColor'] || '#4c3fb3', style: 'width:48px;padding:2px', oninput: (e) => { form.elements['branding.accentColor'].value = e.target.value; drawPreview(); } }),
           h('input', { name: 'branding.accentColor', value: s['branding.accentColor'] ?? '', placeholder: '#4c3fb3', pattern: '^#[0-9a-fA-F]{6}$|^$' }))),
       h('div', { class: 'field' }, h('span', {}, 'Palette'), swatches),
-      h('label', { class: 'field' }, h('span', {}, 'Theme'), h('select', { name: 'branding.theme' }, [['dark', 'Dark (recommended for a booth screen)'], ['light', 'Light'], ['auto', 'Follow the device']].map(([v, t]) => h('option', { value: v, selected: (s['branding.theme'] ?? 'dark') === v }, t)))),
+      h('label', { class: 'field' }, h('span', {}, 'Theme'), h('select', { name: 'branding.theme' }, [['dark', 'Dark (recommended for a booth screen)'], ['light', 'Light'], ['auto', 'Follow the device']].map(([v, t]) => h('option', { value: v, selected: (s['branding.theme'] ?? 'auto') === v }, t)))),
       h('label', { class: 'field' }, h('span', {}, 'Look'), h('select', { name: 'branding.look' }, [['command-center', 'Command center'], ['classic', 'Classic']].map(([v, t]) => h('option', { value: v, selected: (s['branding.look'] ?? 'command-center') === v }, t)))),
       h('label', { class: 'field span2', style: 'grid-column:1/-1' }, h('span', {}, 'Call to action ', h('small', {}, 'the first line visitors read')), h('input', { name: 'branding.callToAction', value: s['branding.callToAction'] ?? '', maxlength: 200 })),
       h('label', { class: 'field' }, h('span', {}, 'Event name'), h('input', { name: 'event.name', value: s['event.name'] ?? '', maxlength: 80 })),
@@ -524,7 +545,7 @@ async function settings() {
       h('div', {}, h('span', {}, 'API'), h('b', {}, c?.baseUrl ?? '—')),
       h('div', {}, h('span', {}, 'Key expires'), h('b', {}, c?.expiresAt ? fmt(c.expiresAt) : '—')),
       h('div', {}, h('span', {}, 'Mode'), h('b', { class: s.mode === 'live' ? '' : 'muted' }, s.mode === 'live' ? 'Live' : 'Demo')),
-      s.connectionError ? h('div', { style: 'grid-column:1/-1' }, h('span', {}, 'Problem'), h('b', { class: 'danger' }, s.connectionError)) : null);
+      ...(s.connectionError ? [h('div', { style: 'grid-column:1/-1' }, h('span', {}, 'Problem'), h('b', { class: 'danger' }, s.connectionError))] : []));
   };
   drawConn();
 
@@ -572,7 +593,7 @@ async function settings() {
       importReport.replaceChildren(...lines);
       setTimeout(render, 2500);
     } catch (err) {
-      importReport.replaceChildren(h('p', { class: 'msg bad' }, err.message), err.data?.ignored?.length ? h('p', { class: 'muted' }, `Seen but not understood: ${err.data.ignored.join(', ')}`) : null);
+      importReport.replaceChildren(h('p', { class: 'msg bad' }, err.message), ...(err.data?.ignored?.length ? [h('p', { class: 'muted' }, `Seen but not understood: ${err.data.ignored.join(', ')}`)] : []));
     }
   };
 

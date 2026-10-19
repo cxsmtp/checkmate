@@ -1,10 +1,5 @@
 /* Admin console: reuses the visitor page's tokens and controls (styles.css). */
-.admin-tabs { display: flex; gap: 2px; margin: 0 auto; overflow-x: auto; scrollbar-width: none; }
-.admin-tabs button { background: none; border: 0; min-height: 0; padding: 8px 12px; border-radius: 8px; color: var(--console-muted); font-size: 13px; font-weight: 500; white-space: nowrap; }
-.admin-tabs button:hover { color: var(--console-text); background: rgb(255 255 255 / .06); }
-.admin-tabs button.active { color: var(--console-text); background: rgb(255 255 255 / .09); }
-.admin-tabs button.alert::after { content: " •"; color: #e2b264; }
-.admin .stage { max-width: 1280px; }
+.admin .page > * { max-width: 1320px; }
 .login { max-width: 420px; margin: 70px auto; display: grid; gap: 14px; }
 .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .toolbar h2 { margin: 0; }
@@ -35,12 +30,12 @@
 
 /* Settings */
 .settings-layout { display: grid; grid-template-columns: 220px 1fr; gap: 22px; align-items: start; }
-.settings-nav { position: sticky; top: 78px; display: grid; gap: 2px; }
+.settings-nav { position: sticky; top: 0; display: grid; gap: 2px; }
 .settings-nav a { padding: 8px 12px; border-radius: 8px; color: var(--muted); text-decoration: none; font-size: 13.5px; font-weight: 500; }
 .settings-nav a:hover, .settings-nav a.active { color: var(--text); background: var(--surface-2); }
 .settings-nav a .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; background: var(--border-strong); }
 .settings-nav a .dot.ok { background: var(--ok); } .settings-nav a .dot.bad { background: var(--danger); }
-.settings-section { scroll-margin-top: 80px; }
+.settings-section { scroll-margin-top: 8px; }
 .settings-section .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 18px; }
 .settings-section .span2 { grid-column: 1 / -1; }
 .settings-section .checks { display: grid; gap: 10px; grid-column: 1 / -1; }

@@ -27,7 +27,7 @@ Invitations can be sent at any step; the results link is private to the team.
 
 ```bash
 # Podman (one command; self-updating when AUTO_UPDATE=on)
-podman run -d --name checkmate -p 3000:3000 -v checkmate-data:/data \
+podman run -d --name checkmate -p 3333:3000 -v checkmate-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
   --env-file checkmate.env ghcr.io/cxsmtp/checkmate:latest
 podman logs checkmate            # the first start prints the admin password
@@ -36,9 +36,9 @@ podman logs checkmate            # the first start prints the admin password
 docker compose up -d && docker compose logs checkmate
 ```
 
-Open `http://<host>:3000` (use `127.0.0.1` rather than `localhost` on Windows if the browser shows an empty response) and `http://<host>:3000/admin`. Everything the app keeps lives in the `/data` volume: settings (secrets mode 0600), profiles, registrations, sample repositories, city photos, installed updates, the activity log.
+Open `http://<host>:3333` (use `127.0.0.1` rather than `localhost` on Windows if the browser shows an empty response) and `http://<host>:3333/admin`. Everything the app keeps lives in the `/data` volume: settings (secrets mode 0600), profiles, registrations, sample repositories, city photos, installed updates, the activity log.
 
-A systemd (Quadlet) service with daily image updates and automatic rollback is in [deploy/podman/README.md](deploy/podman/README.md).
+A systemd (Quadlet) service with daily image updates and automatic rollback is in [deploy/podman/README.md](deploy/podman/README.md); **AWS EC2** (Podman, port 3333, Caddy HTTPS, user-data script) is in [deploy/aws/README.md](deploy/aws/README.md).
 
 ### Configure it in two minutes
 

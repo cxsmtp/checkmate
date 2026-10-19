@@ -70,8 +70,8 @@ export const SETTINGS = {
   'branding.logoHeight': { env: 'BRAND_LOGO_HEIGHT', default: 36, type: 'number' },
   'branding.accentColor': { env: 'BRAND_ACCENT', default: '', type: 'color' },
   'branding.look': { env: 'BRAND_LOOK', default: 'command-center', options: LOOKS },
-  'branding.theme': { env: 'BRAND_THEME', default: 'dark', options: ['auto', 'light', 'dark'] },
-  'branding.accent': { env: 'BRAND_ACCENT_NAME', default: 'city', options: ACCENTS },
+  'branding.theme': { env: 'BRAND_THEME', default: 'auto', options: ['auto', 'light', 'dark'] },
+  'branding.accent': { env: 'BRAND_ACCENT_NAME', default: 'ink', options: ACCENTS },
   'branding.callToAction': { env: 'BRAND_CTA', default: 'Bring your repository. In minutes, see what rule-based scanning never showed you.' },
   'branding.footer': { env: 'BRAND_FOOTER', default: '' },
 

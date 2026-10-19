@@ -1,0 +1,42 @@
+# Podman Quadlet for the EC2 instance: Checkmate as a rootful systemd service on port 3333,
+# starting at boot, restarting on failure, updating itself (app releases from inside the
+# container every 5 minutes; whole image daily through podman-auto-update, with rollback).
+#   /etc/containers/systemd/checkmate.container   +   /etc/checkmate/checkmate.env
+
+[Unit]
+Description=Checkmate event scanner
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+ContainerName=checkmate
+Image=ghcr.io/cxsmtp/checkmate:latest
+PublishPort=3333:3000
+Volume=checkmate-data:/data
+EnvironmentFile=/etc/checkmate/checkmate.env
+Environment=AUTO_UPDATE=on
+# Caddy (same host) forwards https://DOMAIN to 127.0.0.1:3333 and sets X-Forwarded-*.
+Environment=TRUST_PROXY=uniquelocal
+
+ReadOnly=true
+Tmpfs=/tmp
+DropCapability=ALL
+NoNewPrivileges=true
+PodmanArgs=--pids-limit=256
+
+HealthCmd=node scripts/healthcheck.mjs
+HealthInterval=30s
+HealthTimeout=5s
+HealthStartPeriod=20s
+HealthRetries=3
+HealthOnFailure=kill
+
+AutoUpdate=registry
+
+[Service]
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

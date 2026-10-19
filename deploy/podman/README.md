@@ -47,7 +47,7 @@ The admin password is printed once on first start:
 podman logs checkmate | grep -A1 "Admin panel"
 ```
 
-Then open `http://<machine>:3000` (registration) and `http://<machine>:3000/admin`.
+Then open `http://<machine>:3333` (registration) and `http://<machine>:3333/admin`.
 
 ## Windows or macOS (Podman Desktop / podman machine)
 
@@ -57,7 +57,7 @@ One line at a time in a terminal (Windows: `cmd` or PowerShell), from the folder
 podman machine init --now
 podman login ghcr.io -u <github-user>
 podman volume create checkmate-data
-podman run -d --name checkmate --restart=always -p 3000:3000 -v checkmate-data:/data --env-file checkmate.env --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --health-cmd "node scripts/healthcheck.mjs" --health-interval 30s --health-on-failure kill ghcr.io/cxsmtp/checkmate:latest
+podman run -d --name checkmate --restart=always -p 3333:3000 -v checkmate-data:/data --env-file checkmate.env --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true --health-cmd "node scripts/healthcheck.mjs" --health-interval 30s --health-on-failure kill ghcr.io/cxsmtp/checkmate:latest
 podman logs checkmate
 ```
 
