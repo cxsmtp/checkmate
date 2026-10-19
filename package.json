@@ -1,7 +1,7 @@
 {
   "name": "checkmate-event-scanner",
   "version": "1.0.0",
-  "description": "Checkmate event page: register, scan a GitHub repo on Checkmarx One, and see Fusion findings explained in plain language.",
+  "description": "Checkmate: an executive-level event experience that scans a visitor's repository on Checkmarx One with Fusion and shows, in plain language, what rule-based scanning missed.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -13,7 +13,6 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.134.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
     "nodemailer": "^6.9.16"

@@ -144,7 +144,7 @@ export function templateExplanation(finding) {
   }
   return {
     plainTitle: finding.title,
-    whatItMeans: `${k.whatItMeans}${where ? ` Found${where}.` : ''}`,
+    whatItMeans: finding.fusionInsight ? finding.fusionInsight : `${k.whatItMeans}${where ? ` Found${where}.` : ''}`,
     businessImpact: k.businessImpact,
     howToFix,
     urgency: SEVERITY_WORDS[finding.severity] ?? SEVERITY_WORDS.INFO,

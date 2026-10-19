@@ -1,78 +1,35 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="city">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Checkmate Security Scan</title>
+  <title>Checkmate</title>
+  <link rel="icon" href="/app-icon">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand"><span class="logo" aria-hidden="true">♞</span> <span id="event-name">Checkmate</span></div>
-    <div class="tag">Powered by Checkmarx One · Fusion <span id="version" class="version"></span><button type="button" id="city-chip" class="city-chip" hidden></button></div>
+  <header class="console">
+    <a class="brand" href="/" id="brand">
+      <span class="brand-mark" id="brand-mark">♞</span>
+      <span class="brand-name" id="brand-name">Checkmate</span>
+      <span class="brand-co" id="brand-co"></span>
+    </a>
+    <ol class="steps" id="steps" aria-label="Progress">
+      <li data-step="who"><i></i>You</li>
+      <li data-step="repo"><i></i>Repository</li>
+      <li data-step="profile"><i></i>Scan</li>
+      <li data-step="scan"><i></i>Running</li>
+      <li data-step="outcome"><i></i>Outcome</li>
+    </ol>
+    <div class="console-right">
+      <button type="button" class="chip" id="tenant-chip" hidden><i></i><span>Checkmarx One</span></button>
+      <button type="button" class="chip" id="city-chip" hidden><span>📍 Choose your city</span></button>
+      <span class="chip" id="version-chip" style="cursor:default"><span class="ver" id="version"></span></span>
+    </div>
   </header>
 
-  <main id="app" class="container" aria-live="polite"></main>
-
-  <template id="register-tpl">
-    <section class="hero">
-      <span class="city-greeting" id="city-greeting" hidden></span>
-      <h1>See what your scanner is missing.</h1>
-      <p>Give us a GitHub repository. Checkmarx One scans it with <strong>Fusion</strong> switched on, and in a few minutes you'll see the issues rule-based tools didn't find — explained in plain language.</p>
-      <p class="landmarks" id="landmarks" hidden></p>
-      <div class="hero-skyline" data-skyline aria-hidden="true"></div>
-    </section>
-
-    <form id="register" class="card form" novalidate>
-      <fieldset>
-        <legend>Your details</legend>
-        <div class="grid two">
-          <label><span>Full name</span><input name="name" autocomplete="name" required></label>
-          <label><span>Work email</span><input name="email" type="email" autocomplete="email" required></label>
-        </div>
-        <label><span>Company <span class="muted">(optional)</span></span><input name="company" autocomplete="organization"></label>
-      </fieldset>
-
-      <fieldset>
-        <legend>Technical contact</legend>
-        <p class="hint">The engineer who owns this repository. Can be you.</p>
-        <button type="button" class="link" id="same-as-me">Same as me</button>
-        <div class="grid two">
-          <label><span>Name</span><input name="technicalName" required></label>
-          <label><span>Email</span><input name="technicalEmail" type="email" required></label>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Operations points of contact</legend>
-        <p class="hint">At least two colleagues you'd like to review the results with. You can invite more later.</p>
-        <div id="contacts"></div>
-        <button type="button" class="secondary small" id="add-contact">+ Add another contact</button>
-        <p class="error" data-error="contacts"></p>
-      </fieldset>
-
-      <fieldset>
-        <legend>Repository</legend>
-        <input type="hidden" name="sampleId">
-        <div id="samples" class="samples"></div>
-        <p class="error" data-error="sampleId"></p>
-        <div id="own-repo">
-          <div class="grid two wide-first">
-            <label><span>GitHub repository URL</span><input name="githubUrl" type="url" placeholder="https://github.com/org/repo" required></label>
-            <label><span>Branch <span class="muted">(optional)</span></span><input name="branch" placeholder="main"></label>
-          </div>
-          <label class="check"><input type="checkbox" name="consent"> I'm authorised to have this repository scanned by Checkmarx.</label>
-          <p class="error" data-error="consent"></p>
-        </div>
-        <label class="check"><input type="checkbox" name="inviteNow" checked> Email my points of contact a link to the results now.</label>
-      </fieldset>
-
-      <div class="actions">
-        <button type="submit" class="primary" id="submit">Start my scan</button>
-        <p class="error" id="form-error" role="alert"></p>
-      </div>
-    </form>
-  </template>
+  <main id="app" class="stage" aria-live="polite"></main>
+  <footer class="footer"><span id="footer-left"></span><span>Powered by Checkmarx One · Fusion</span></footer>
 
   <script src="/app.js" type="module"></script>
 </body>

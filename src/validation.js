@@ -17,7 +17,8 @@ const clean = (v, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) 
 /** Validates the registration form. Returns { value } or { errors }. */
 export function validateRegistration(body = {}, { getSample = () => null } = {}) {
   const errors = {};
-  const customer = { name: clean(body.name), email: clean(body.email, 254).toLowerCase(), company: clean(body.company) };
+  const customer = { name: clean(body.name), email: clean(body.email, 254).toLowerCase(), company: clean(body.company), title: clean(body.title) };
+  const profileId = /^[a-f0-9-]{36}$/.test(String(body.profileId ?? '')) ? body.profileId : null;
   const technical = { name: clean(body.technicalName), email: clean(body.technicalEmail, 254).toLowerCase() };
   const contacts = Array.isArray(body.contacts) ? body.contacts : [];
   const pocs = contacts
@@ -48,5 +49,5 @@ export function validateRegistration(body = {}, { getSample = () => null } = {})
   if (Object.keys(errors).length) return { errors };
   // Only a known city name is kept (never coordinates); anything else means no theme.
   const theme = CITY_THEMES.includes(body.theme) ? body.theme : null;
-  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null, theme } };
+  return { value: { customer, technical, pocs, repo, branch, sampleId: sample?.id ?? null, theme, profileId } };
 }

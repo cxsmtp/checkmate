@@ -36,15 +36,17 @@ services:
       # Everything below can also be set from the admin panel (/admin → Settings).
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}           # address visitors use, put in invitation emails
       CX_MODE: ${CX_MODE:-demo}                       # demo | live
-      CX_TENANT: ${CX_TENANT:-}
-      CX_API_KEY: ${CX_API_KEY:-}
-      CX_BASE_URL: ${CX_BASE_URL:-https://ast.checkmarx.net}
-      CX_IAM_URL: ${CX_IAM_URL:-https://iam.checkmarx.net}
+      CX_API_KEY: ${CX_API_KEY:-}                     # the only Checkmarx One setting needed (URLs derive from it)
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}             # optional; otherwise generated and printed once
       # Updates: new releases from the repository's main branch install by themselves when on.
       AUTO_UPDATE: ${AUTO_UPDATE:-on}
       UPDATE_CHECK_MINUTES: ${UPDATE_CHECK_MINUTES:-5}
-      # The repository is private: a token that can read its packages and attestations.
+      # Only while the image package is private: a token that can read it and its attestations.
       UPDATE_REGISTRY_TOKEN: ${UPDATE_REGISTRY_TOKEN:-}
       GITHUB_READ_TOKEN: ${GITHUB_READ_TOKEN:-}
       TRUST_PROXY: ${TRUST_PROXY:-loopback}           # set to your reverse proxy's address when behind one

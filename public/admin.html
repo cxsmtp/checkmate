@@ -1,19 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-accent="ink">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Checkmate Admin</title>
+  <title>Checkmate · Admin</title>
+  <link rel="icon" href="/app-icon">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/admin.css">
 </head>
 <body class="admin">
-  <header class="topbar">
-    <div class="brand"><span class="logo" aria-hidden="true">♞</span> Checkmate admin</div>
-    <div class="tag"><a href="/" class="toplink">Registration page ↗</a> <button id="logout" class="toplink" hidden>Sign out</button></div>
+  <header class="console">
+    <a class="brand" href="/admin" id="brand">
+      <span class="brand-mark" id="brand-mark">♞</span>
+      <span class="brand-name" id="brand-name">Checkmate</span>
+      <span class="brand-co">Admin console</span>
+    </a>
+    <nav class="admin-tabs" id="tabs" aria-label="Sections"></nav>
+    <div class="console-right">
+      <a class="chip" href="/" target="_blank" rel="noopener"><span>Visitor page ↗</span></a>
+      <button type="button" class="chip" id="logout" hidden><span>Sign out</span></button>
+    </div>
   </header>
-  <main id="admin" class="container"></main>
+  <main id="admin" class="stage"></main>
   <script src="/admin.js" type="module"></script>
 </body>
 </html>

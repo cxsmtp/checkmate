@@ -74,9 +74,19 @@ jobs:
           # A visitor picks a sample repository (demo mode) and gets results.
           SAMPLE=$(curl -sf http://127.0.0.1:3000/api/config | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).samples[0].id))")
           RES=$(curl -sf -H 'Content-Type: application/json' -d "{\"name\":\"CI\",\"email\":\"ci@example.com\",\"technicalName\":\"CI\",\"technicalEmail\":\"ci@example.com\",\"contacts\":[{\"name\":\"A\",\"email\":\"a@example.com\"},{\"name\":\"B\",\"email\":\"b@example.com\"}],\"sampleId\":\"$SAMPLE\",\"inviteNow\":false}" http://127.0.0.1:3000/api/sessions)
-          URL=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);console.log('/api/sessions/'+r.id+'?k='+r.accessKey)})")
-          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"complete"' && break; sleep 2; done
+          SID=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).id))")
+          KEY=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).accessKey))")
+          URL="/api/sessions/$SID?k=$KEY"
+          # The scan profile is read from the tenant (demo options here); the visitor then chooses and starts.
+          for i in $(seq 1 15); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"profile"' && break; sleep 1; done
+          curl -sf "http://127.0.0.1:3000$URL" | grep -q '"models":\['
+          curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"fusion\":true,\"llmModel\":\"opus-5.5\"}" "http://127.0.0.1:3000/api/sessions/$SID/start" | grep -q '"stage":"queued"'
+          for i in $(seq 1 40); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"complete"' && break; sleep 2; done
           curl -sf "http://127.0.0.1:3000$URL" | grep -q '"fusionOnly":\['
+          # One click triages the Fusion-only findings with AI (demo: the same stages against a simulation).
+          curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"scope\":\"fusion\"}" "http://127.0.0.1:3000/api/sessions/$SID/assist/triage" | grep -q '"status":"running"'
+          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"vulnerable":' && break; sleep 2; done
+          curl -sf "http://127.0.0.1:3000$URL" | grep -q '"vulnerable":4'
           # Stops cleanly through tini.
           docker stop cm > /dev/null
           docker logs cm 2>&1 | grep -q 'Stopped cleanly'
@@ -146,11 +156,23 @@ jobs:
           cp integrity-amd64.json integrity.json
           sha256sum integrity.json
           echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      # GitHub signs builds of public repositories, and of private ones only on Enterprise Cloud
+      # (set the repository variable ATTESTATIONS=on there). Unsigned releases still publish, but
+      # running containers refuse to auto-update to them until they are signed.
+      - name: Releases cannot be signed in this repository
+        if: github.event.repository.visibility != 'public' && vars.ATTESTATIONS != 'on'
+        run: |
+          msg="Not signed: GitHub does not sign builds of private repositories owned by a user. The image is published, but containers will refuse to auto-update to it. Make the repository public (or use an Enterprise Cloud organisation and set ATTESTATIONS=on)."
+          echo "::warning title=Release not signed::$msg"
+          echo "### ⚠️ Release not signed" >> "$GITHUB_STEP_SUMMARY"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
       - name: Sign the file list
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS == 'on'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: integrity.json
       - name: Sign the image
+        if: github.event.repository.visibility == 'public' || vars.ATTESTATIONS == 'on'
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ${{ steps.files.outputs.image }}

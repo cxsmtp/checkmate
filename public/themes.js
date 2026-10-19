@@ -186,31 +186,61 @@ export function cityFromTimeZone() {
 }
 
 let skylineCache = {};
-/** Applies a theme to the whole page: colours (CSS, by data-city) and the skyline. */
+let current = null;
+
+/** Applies a city theme: the page's data-city (colours come from styles.css) and every skyline on it. */
+let photos = {};
+/** The photo list per city, from /api/config (cityPhotos). */
+export function setPhotos(map) { photos = map ?? {}; paintPhotos(); }
+export const photosFor = (key) => photos[key] ?? [];
+
+/**
+ * Real photography, crossfading slowly, in every [data-photos] element of the current
+ * city; the drawn skyline underneath stays as the fallback when there are none.
+ */
+const rotation = new WeakMap();
+export function paintPhotos() {
+  const key = THEMES[current] ? current : null;
+  const list = key ? photosFor(key) : [];
+  for (const el of document.querySelectorAll('[data-photos]')) {
+    if (el.dataset.paintedPhotos === `${key}:${list.length}`) continue;
+    el.dataset.paintedPhotos = `${key}:${list.length}`;
+    clearInterval(rotation.get(el));
+    el.replaceChildren();
+    el.classList.toggle('has-photos', list.length > 0);
+    if (!list.length) continue;
+    const offset = Number(el.dataset.photoOffset || 0);
+    const imgs = list.map((p, i) => Object.assign(document.createElement('img'), { src: p.src, alt: '', loading: i === offset % list.length ? 'eager' : 'lazy', className: i === offset % list.length ? 'on' : '' }));
+    el.append(...imgs);
+    const credit = document.createElement('span');
+    credit.className = 'credit';
+    const setCredit = (i) => { credit.textContent = list[i].credit ? `Photo: ${list[i].credit}` : ''; };
+    setCredit(offset % list.length);
+    el.append(credit);
+    if (list.length > 1) {
+      let i = offset % list.length;
+      rotation.set(el, setInterval(() => { if (!el.isConnected) return clearInterval(rotation.get(el)); imgs[i].classList.remove('on'); i = (i + 1) % list.length; imgs[i].classList.add('on'); setCredit(i); }, 9000));
+    }
+  }
+}
+
 export function applyTheme(key) {
   const theme = THEMES[key] ?? DEFAULT_THEME;
   document.documentElement.dataset.city = THEMES[key] ? key : 'default';
-  let layer = document.getElementById('skyline');
-  if (!layer) {
-    layer = document.createElement('div');
-    layer.id = 'skyline';
-    layer.setAttribute('aria-hidden', 'true');
-    document.body.prepend(layer);
-  }
   current = key;
   paintSkylines();
+  paintPhotos();
   return theme;
 }
 
-let current = null;
-/** Draws the current city's skyline into the page background and every [data-skyline] element. */
+/** Draws the current city's skyline into every [data-skyline] element. */
 export function paintSkylines() {
   const theme = THEMES[current] ?? DEFAULT_THEME;
   const cacheKey = THEMES[current] ? current : 'default';
   // Constant, author-written SVG (see above): safe to parse as markup.
   skylineCache[cacheKey] ??= theme.skyline();
-  for (const el of [document.getElementById('skyline'), ...document.querySelectorAll('[data-skyline]')]) {
-    if (el && el.dataset.painted !== cacheKey) {
+  for (const el of document.querySelectorAll('[data-skyline]')) {
+    if (el.dataset.painted !== cacheKey) {
       el.innerHTML = skylineCache[cacheKey];
       el.dataset.painted = cacheKey;
     }

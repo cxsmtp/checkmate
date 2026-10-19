@@ -1,139 +1,142 @@
-# Checkmate event scanner
+# Checkmate
 
-A self-contained container for Checkmate events. At the booth, a visitor:
+**An event experience for CISOs: bring a repository, see what rule-based scanning never showed you, and watch Checkmarx One AI triage and fix it — in minutes, on one page.**
 
-1. Fills in their **name and email**, a **technical contact**, at least **two operations points of contact**, and a **GitHub repository URL**. Visitors without a repository can **pick one of the sample repositories** the booth team manages in the admin panel.
-2. Submits the form. The app creates or reuses a project on the **Checkmarx One** tenant and starts a scan with **Fusion** switched on. A sample that was scanned recently shows its results at once.
-3. Sees the results on the same page, laid out like the **Checkmarx One results view**: scan bar, scanner tabs, severity filters, results table, and a details drawer. Fusion findings that no rule-based engine reported are pinned to the top and highlighted. Their **Fusion insight** tab shows what Fusion determined, which engines missed it, why rule-based tools miss this kind of issue, the business impact, the fix and the data flow.
-4. Reads an **executive summary** and, for every finding, a plain-language explanation for executives and engineers alike.
-5. Invites the points of contact, or anyone else, by email at any time.
+Checkmate is a self-contained, self-updating container for Checkmarx booths and executive briefings. A visitor types two letters of their name, picks their repository, chooses how to scan (the engines and frontier model their tenant offers), watches the scan run, and reads an **Outcome**: the issues **Fusion** found that no rule-based engine reported, explained in plain language, with the application map and risk re-scoring behind them. Then they **close the loop**: one click triages every finding with **Checkmarx One AI Triage**, one click writes the fixes with **AI Remediation**, and one click sends the fixes to their developers.
+
+It needs exactly two things to run live: a **Checkmarx One API key** and **SMTP settings** — both pasted in the admin console or uploaded as a `.env` file, as in CxMissionZero. Nothing else talks to anything else.
+
+> Everything a visitor sees also works in **demo mode** (no tenant, no credits): the same stages run against a simulation with realistic data, so the booth can be rehearsed anywhere.
+
+---
+
+## The experience, step by step
+
+| Step | What the visitor sees | What happens underneath |
+| --- | --- | --- |
+| **Welcome** | The city postcard (real photography, the local time, the landmarks), *See what your scanner is missing*, and one field: *Type your name or company…*. Two letters show the invited profiles; picking one fills in the person, their technical owner and their team. Visitors without a repository pick one of the booth's samples. | `GET /api/profiles/search?q=` (names and companies only, never emails) → `GET /api/profiles/:id/pick` fills the draft. |
+| **Repository** | A short, pre-filled form: name, email, company, title; the technical owner (*That's me*); the team as chips; the GitHub URL or a sample; consent. | `POST /api/sessions` → session in stage `options`, profile remembered in the directory, invitations queued. |
+| **Scan** | *How should we scan owner/repo?* — the engines the tenant licenses, the **Fusion** switch, the **model list fetched from the tenant** (`scan.config.ai.llmModel`: e.g. `mythos-5.1`, `opus-5.5`, `opus-5.0`, `opus-4.7`, `haiku-4.5`), the SAST preset, and *What will be sent* (the exact `POST /api/scans` body). | `GET /api/configuration/tenant` + `/api/queries/presets` → `POST /api/sessions/:id/start` with the choice. |
+| **Running** | The theatre: one row per engine with live status, a Fusion ring with the correlation stage, the team panel to invite colleagues meanwhile. | project → application → scan → poll `/api/scans/{id}` → Fusion `correlate` → poll `scan-status` → `/api/results` + `risk-scores` + application map. |
+| **Outcome** | The exposure dial and headline (*Fusion found 4 issues that rule-based scanning did not see, 3 of them critical or high*), tiles, *Where rule-based scanning was blind*, *First moves*, *What Fusion re-scored and why*, *The application Fusion mapped*, then the results laid out as Checkmarx One lays them out (scanner tabs, severity filters, table, details drawer with **Fusion insight**, plain language, attack vector). | `src/outcome.js`, `src/fusion.js`, `src/knowledge.js`. |
+| **Close the loop** | *Found. Triaged. Fixed.* — scope (**Fusion-only** / **Critical & high** / **Everything**), **✦ Triage N with AI**, **⚡ Remediate N with AI**, live tickers, verdicts and *Fix ready* in the table, the patch in the drawer (**⚡ AI fix** tab), **Send N fixes to the technical owner**. | `POST /api/ai-triage/triage`, `GET /api/ai-triage/triage/{projectId}/{groupId}`, `POST /api/remediation/remediate`, `GET /api/remediation/remediation-details/{scanId}/{alternateId}` — the contract CxMissionZero uses in production. |
+
+Invitations can be sent at any step; the results link is private to the team.
 
 ## Run it
 
 ```bash
-docker compose up -d                 # or: podman compose up -d
-docker compose logs checkmate        # the first start prints the admin password
-```
-
-Or with one command:
-
-```bash
-docker run -d --name checkmate -p 3000:3000 -v checkmate-data:/data \
+# Podman (one command; self-updating when AUTO_UPDATE=on)
+podman run -d --name checkmate -p 3000:3000 -v checkmate-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
-  -e AUTO_UPDATE=on ghcr.io/cxsmtp/checkmate:latest
+  --env-file checkmate.env ghcr.io/cxsmtp/checkmate:latest
+podman logs checkmate            # the first start prints the admin password
+
+# or Compose
+docker compose up -d && docker compose logs checkmate
 ```
 
-**Podman, self-updating** (a systemd service on Linux; Podman Desktop on Windows/macOS): see [deploy/podman/README.md](deploy/podman/README.md).
+Open `http://<host>:3000` (use `127.0.0.1` rather than `localhost` on Windows if the browser shows an empty response) and `http://<host>:3000/admin`. Everything the app keeps lives in the `/data` volume: settings (secrets mode 0600), profiles, registrations, sample repositories, city photos, installed updates, the activity log.
 
-Open `http://<host>:3000` for the registration page and `http://<host>:3000/admin` for the admin panel. Everything the app keeps (registrations, settings, sample repositories, installed updates, the activity log) is in the `/data` volume.
+A systemd (Quadlet) service with daily image updates and automatic rollback is in [deploy/podman/README.md](deploy/podman/README.md).
 
-The default mode is **demo**: a simulated scan with sample findings, for rehearsing the booth. Switch to **live** under *Admin → Settings* once the Checkmarx One tenant is configured, and use **Test Checkmarx One connection** to check it.
+### Configure it in two minutes
 
-## City themes
+1. Sign in to `/admin` with the printed password and choose your own.
+2. **Settings → Configure from a .env file**: drop a file with `CX_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (the same variables the container takes). The settings apply at once; the Checkmarx One connection and the mail server are checked and the result shown. Or type them into the Checkmarx One and Email sections and use **Test**.
+3. The **connection card** shows what was read from the key: tenant, region, API and IAM addresses, expiry. Set **Mode** to *live*.
+4. **Profiles**: import the invitee list as CSV (`name, email, company, title, technical_name, technical_email, team, city, tags` — common header names are recognised). Everyone who registers is added automatically.
+5. **Branding**: app and company name, logo and icon upload, accent colour or palette, dark/light, the call to action, event name, venue, city theme, and **City photography** (fetched from Wikimedia Commons or uploaded).
 
-When the registration page opens, a visitor sees **Make it feel like home**. They can share their location or pick their city, and the whole experience takes that city's colours and skyline: the registration page, the results view, the Fusion highlights and the scan bar.
+## Checkmarx One: what is called, and why
 
-| City | Skyline |
+Only the API key is configured; the tenant, IAM and API URLs are derived from the key's issuer (`src/cxone/endpoints.js`, from CxMissionZero). Credentials are sent over HTTPS to `*.checkmarx.net` only, redirects refused (`checkmarx.allowCustomHost` for private deployments).
+
+| Purpose | Call |
 | --- | --- |
-| Dubai | Dubai Frame · Burj Khalifa · Museum of the Future · Burj Al Arab, with palms and dunes |
-| New York | Statue of Liberty · Empire State · Chrysler · One World Trade · Brooklyn Bridge |
-| Boston | Old State House · Custom House Tower · Prudential · Hancock · Zakim Bridge |
-| Singapore | Supertree Grove · Marina Bay Sands · ArtScience Museum · Merlion · Singapore Flyer |
-| Melbourne | Shrine of Remembrance · Flinders Street Station · Eureka Tower · Royal Exhibition Building |
+| Sign in | `POST {iam}/auth/realms/{tenant}/protocol/openid-connect/token` (refresh-token grant, `client_id=ast-app`) |
+| What the tenant offers | `GET /api/configuration/tenant` → `scan.config.general.scannersSelection` (engines), `scan.config.ai.fusionEnabled`, `scan.config.ai.llmModel` (the model list), `scan.config.sast.extendedAnalysis`; `GET /api/queries/presets` |
+| Project and application | `GET/POST /api/projects` (name `checkmate-<owner>/<repo>`), `GET/POST /api/applications` with a `project.name.in` rule |
+| The scan | `POST /api/scans` `{ type: "git", handler: { repoUrl, branch }, config: [ { type: "sast", value: { incremental: "false", presetName?, extendedAnalysis: "true" } }, { type: "sca" }, …, { type: "ai", value: { fusionEnabled: "true", llmModel } } ] }`; `GET /api/scans/{id}` until `Completed` |
+| Fusion, application level | `POST {dispatcher}/{applicationId}/correlate` (201), `GET {dispatcher}/{applicationId}/scan-status` → `{ scanStatus, stage 0–100, stageDescription, scanId }`; `GET {results}/applications/{id}/summary`, `/resources`, `/microservices`, `/risk-scores?cxone-scan-ids=` → `{ resultId, vulnerabilityEngine, correlatedEngine, oldRiskValue, newRiskValue, resultInfo }` |
+| Results | `GET /api/results?scan-id=` (numbered pages) |
+| AI Triage | `POST /api/ai-triage/triage { scanID, buckets: [{ scannerType: "sast"\|"sca", resultIDs: [alternateId…] }] }`; verdicts from `GET /api/ai-triage/triage/{projectId}/{groupId}` (`triageStatus`, `analysis.confidence.score`, reachability, exploitability, reason) |
+| AI Remediation | `POST /api/remediation/remediate { scanID, buckets: [{ scannerType, resultIDs: [one] }] }`; the fix from `GET /api/remediation/remediation-details/{scanId}/{alternateId}` (`results[0].data.summary`, `analysis.how/why`, `file_changes[{file_path, diff}]`, `autoPr.url`) |
 
-- **Privacy:** the coordinates never leave the browser. The page picks the nearest city (within 300 km), and only that city's name is stored with the registration. That is why invited colleagues see the same theme.
-- **Without location:** the browser's time zone suggests a city, and the visitor can pick one or choose *Not now*. The answer is remembered on that device, so a booth kiosk asks once.
-- **Event-wide city:** *Admin → Settings → City theme* fixes one city for the whole event, and the location prompt can be switched off there.
-- **HTTPS required:** browsers only share location over HTTPS (or `localhost`). Serve the booth through an HTTPS reverse proxy. Over plain http the prompt explains this and offers the city list instead.
-- **Drawings:** the skylines are hand-drawn SVG in `public/themes.js`. There are no external images to load or license, and the page works offline. Adding a city means one entry there and one colour block in `styles.css`.
+**Fusion base paths.** The Fusion Dispatcher and Results services' OpenAPI documents (`Fusion-Dispatcher.yaml`, `Fusion-Results.yaml`) define paths relative to a base that is not in the documents. Checkmate probes `/api/fusion-dispatcher`, `/api/fusion/dispatcher`, `/api/fusion-results`, `/api/fusion/results` and a few more, and remembers what answers; set `fusion.dispatcherPath` / `fusion.resultsPath` in Settings once your tenant's are known. Without them the scan still completes; correlation shows *unavailable*.
 
-## Admin panel (`/admin`)
+### How a Fusion finding is recognised
+
+Verified on a tenant (project *Fusion Hub*): Fusion's findings arrive in `/api/results` as `type: "sast"` rows with **`data.queryId === 0`**, a **CWE-title query name** (*Improper Input Validation*, *Authorization Bypass Through User-Controlled Key*…), a group like **`TSX_HIGH`** / `TypeScript_HIGH`, and an empty description. Classic SAST rows have a 64-bit `queryId` and groups like `JavaScript_Low_Visibility`. `src/fusion.js` uses that fingerprint (and, as a fallback, the configurable markers `fusion, ai-sast…` in `type`/engine fields). A Fusion finding is **Fusion-only** unless a rule-based finding has the same weakness in the same file within ±3 lines (source or sink); then the rule-based one is marked *Confirmed by both*.
+
+## Admin console (`/admin`)
 
 | Tab | What it does |
 | --- | --- |
-| Registrations | Every visitor, their team and invitation status, scan status, a link to their results, and a link to the scan in Checkmarx One. Download as CSV. |
-| Sample repositories | Add, edit, hide or remove the repositories visitors can pick. **Scan now** runs a fresh scan. Visitors reuse the newest completed scan of a sample for `sampleReuseHours` (default 24; 0 always rescans). Seeded with `cxsmtp/juice-shop`, `cxsmtp/WebGoat` and `cxsmtp/NodeGoat`. |
-| Settings | Event, Checkmarx One tenant, Fusion scan configuration, Claude explanations, email. Applied immediately. Secrets are kept in `/data` (mode 0600) and never shown again. |
-| Updates & integrity | Integrity state, published versions, install, switch or roll back, auto-update on/off, restart, launcher events. |
-| Activity log | Sign-ins, settings changes, registrations, updates and integrity results. |
-| Account | Change the admin password. |
+| **Registrations** | Every visitor: team and invitation state, repository, scan profile (engines, Fusion model), exposure band, Fusion-only / total, links to the results and to Checkmarx One, **Rescan**, CSV. |
+| **Profiles** | The invitee directory behind the type-ahead: add, edit, remove, **CSV import/export**, visits. |
+| **Sample repositories** | Repositories visitors can pick; **Scan now**; reuse window. |
+| **Branding** | App name, company, logo and icon (upload or https), logo height, accent colour / palette, dark/light/auto, look, call to action, event name, tagline, venue, footer, city theme, location prompt; **City photography** per city: fetch from Wikimedia Commons, upload, remove. |
+| **Settings** | **.env upload**; **Checkmarx One** (key, connection card, mode, prefix, branch, GitHub token, timeouts, overrides, **Test connection**); **Scan defaults** (engines, Fusion, default model, extended analysis, preset, visitor choice, extra config); **Fusion** (fingerprint switches, correlation, Dispatcher/Results paths); **AI Triage & Remediation** (on/off, polling, time limit); **Profiles & samples**; **Email** (host, port, user, password, from, team address, TLS options, **Test email**). |
+| **Updates & integrity** | Integrity state, published versions, install / switch / roll back, auto-update, restart, launcher events. |
+| **Activity** | Sign-ins, settings changes, registrations, scans, AI assist runs, updates, integrity results. |
+| **Account** | Change the admin password (`podman exec checkmate node scripts/reset-admin.mjs` if locked out). |
 
-The first admin password is generated on first start, printed once in the log and kept in `/data/first-admin-password.txt` until changed. Set `ADMIN_PASSWORD` to choose it instead. Locked out? `docker exec checkmate node scripts/reset-admin.mjs`.
+## City themes and photography
 
-## Auto-update: from a push to `main` to the running booth
+On first open a visitor sees *Make it feel like home*: share the location (coordinates never leave the browser; the nearest of Dubai, New York, Boston, Singapore, Melbourne within 300 km is chosen) or pick a city. The whole experience takes the city's palette, its real photographs (postcard, and faintly behind every page, crossfading every nine seconds with the photographer's credit), its local time and landmarks. The city is kept with the registration so invited colleagues see the same.
 
-```
-push to main ──► GitHub Actions ──► unit tests, image build, hardened smoke test
-                                 └► publish ghcr.io/cxsmtp/checkmate:<1.0.N>, :latest, :sha-…
-                                 └► sign integrity.json and the image (GitHub attestation, Sigstore log)
-running container (AUTO_UPDATE=on) ──► every UPDATE_CHECK_MINUTES (5) looks for a newer version
-                                   └► downloads only the app layers, checks each against its sha256
-                                   └► checks every file against integrity.json and that list's signature
-                                   └► backup, then switches without restarting the container
-                                   └► rolls back by itself if the new version does not come up
-```
+Photos come from **Wikimedia Commons** — Creative Commons / public-domain only, landscape, 1600 px and wider, author and licence recorded — fetched in the background at first start when the server can reach `commons.wikimedia.org` / `upload.wikimedia.org` (`CITY_PHOTOS_AUTO=true`), or per city from Branding; the booth team can also upload their own. Without photos the hand-drawn skyline (`public/themes.js`) is shown, so the page never depends on the internet.
 
-- Every push to `main` is a release: the version is `major.minor` from `package.json` plus the workflow run number.
-- Auto-update is **off unless you turn it on**, with `AUTO_UPDATE=on` (as in `compose.yaml`) or the switch in the admin panel. A version that once failed to start is never installed automatically again.
-- A new Node.js or OS base (rare) needs the image itself replaced: `docker compose pull && docker compose up -d`.
-
-## Software integrity
+## Auto-update and software integrity
 
 Ported from CxMissionZero (`src/integrity/`, `src/updates/`, `src/launch.js`):
 
-- **The file list.** The image build writes `integrity.json`, the SHA-256 of every file the server runs. The release workflow checks it is identical on amd64 and arm64, then signs it with a GitHub build attestation recorded in Sigstore's public transparency log.
-- **The running copy is checked** at start, every 6 hours and on demand. Every file is compared with the list. The list's attestation is fetched from `api.github.com` and verified on the server, with no outside library: Sigstore root, the `cxsmtp/checkmate` `container.yml` workflow on `main` or a `v*` tag, the signature, the subject digest and the transparency log entry. The states are Genuine, Files changed, Not signed by the release workflow, Not confirmed yet, and Development copy.
-- **Updates are refused** unless every file matches the signed list and the signature checks out. Installed versions are checked again before they run.
-- **Container hardening:** read-only root filesystem, no Linux capabilities, `no-new-privileges`, non-root user, no package manager in the runtime image, and `tini` for clean stops.
-- **Checkmarx One credentials** are only ever sent over HTTPS to `*.checkmarx.net`, with redirects refused. Set `CX_ALLOW_CUSTOM_HOST=true` for a private deployment.
-- **App security:** strict CSP and security headers, rate limiting, admin sessions in `HttpOnly` / `SameSite=Strict` cookies, a same-origin check on admin changes, scrypt password hashing, unguessable result links, and an append-only activity log.
+- Every push to `main` builds, smoke-tests and publishes `ghcr.io/cxsmtp/checkmate:<1.0.N>`, `:latest`; `integrity.json` (SHA-256 of every file) and the image are signed with a GitHub build attestation (Sigstore). A running container with `AUTO_UPDATE=on` checks every 5 minutes, downloads only the app layers, verifies every file against the signed list, switches without a restart and rolls back by itself if the new version does not come up.
+- Hardened container: read-only root, no capabilities, `no-new-privileges`, non-root, `tini`. Strict CSP, rate limiting, `HttpOnly`/`SameSite=Strict` admin sessions, scrypt, unguessable result links, append-only activity log.
+- **Public repository:** the repository is public, so GitHub signs every release and containers verify it. (On a private repository GitHub issues build attestations only on Enterprise Cloud; the publish job then warns and skips signing, and containers refuse unsigned updates.) The image itself must be public too for a booth to pull it without a token: GitHub → Packages → `checkmate` → Package settings → *Change visibility*; otherwise set `UPDATE_REGISTRY_TOKEN` / `GITHUB_READ_TOKEN` (`read:packages`).
 
-Check it yourself:
+## Settings reference
 
-```bash
-docker exec checkmate node scripts/integrity.mjs check
-gh attestation verify oci://ghcr.io/cxsmtp/checkmate:latest --owner cxsmtp
-```
+Every setting has an environment default and can be changed in `/admin` (or by `.env` upload); the admin's value wins and is kept in `/data/settings.json`.
 
-> **The repository is private.** GitHub only issues build attestations for private repositories on GitHub Enterprise Cloud. Without it, the signing steps in the workflow fail, and running containers report **Not signed by the release workflow** and refuse updates. Either make the repository public (as CxMissionZero is) or use an Enterprise Cloud organisation. Reading a private image and its attestations also needs a token with `read:packages`: set `UPDATE_REGISTRY_TOKEN` and `GITHUB_READ_TOKEN`.
+| Group | Variables |
+| --- | --- |
+| Event & branding | `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` (demo\|live), `DEFAULT_CITY`, `ASK_LOCATION`, `SAMPLE_REUSE_HOURS`, `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`, `CITY_PHOTOS_AUTO` |
+| Checkmarx One | `CX_API_KEY` (secret), `CX_BASE_URL` / `CX_IAM_URL` / `CX_TENANT` (overrides; normally derived from the key), `CX_PROJECT_PREFIX`, `CX_DEFAULT_BRANCH`, `CX_POLL_INTERVAL_MS`, `CX_SCAN_TIMEOUT_MS`, `CX_GITHUB_TOKEN` (secret), `CX_ALLOW_CUSTOM_HOST` |
+| Scan | `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (extra JSON entries) |
+| Fusion | `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS` |
+| AI assist | `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS` |
+| Profiles | `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS` |
+| Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; `SMTP_PASSWORD` accepted), `SMTP_FROM` (`SMTP_FROM_ADDRESS` accepted), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL` |
+| Container | `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS` |
 
-## How Fusion-only findings are identified
-
-`src/fusion.js` normalises every Checkmarx One result. A result counts as **Fusion** when its `type`, or an engine/source field, contains one of the Fusion markers (Settings). A Fusion finding is **Fusion-only** unless a deterministic finding has the same weakness (same CWE, or same query name) in the same file within ±3 lines, comparing both the source and the sink of the data flow. When there is such a match, the deterministic finding is marked **Confirmed by Fusion** instead.
-
-> **Check against your tenant:** set the Fusion scan configuration and markers (Admin → Settings → Fusion) to what your tenant uses.
-
-## Plain-language explanations
-
-With an Anthropic API key (Settings or `ANTHROPIC_API_KEY`), Claude writes the per-finding explanations (Fusion-only findings first, then by severity) and the executive summary. Without a key, or if a call fails, a built-in knowledge base keyed by CWE and keywords is used.
-
-## Email
-
-Invitations and "results ready" emails go out over SMTP when it is configured (Settings or `SMTP_*`). Otherwise they are written to `/data/outbox/`. A team address can be copied on every registration.
+Without SMTP, every email (invitations, *results are ready*, the developer brief with patches) is written to `/data/outbox/` as JSON.
 
 ## Development
 
 ```bash
 npm install
-npm start          # http://localhost:3000, data in ./data
-npm test
+npm start          # http://localhost:3000, demo mode, data in ./data, 5 fictional profiles seeded
+npm test           # 42 tests, including the whole live flow against a Checkmarx One stand-in (test/helpers/mock-cxone.mjs)
 ```
 
-## Layout
-
 ```
-src/server.js        Express app: public API, admin API, start/stop
-src/launch.js        Container start command: runs the chosen version, switches, rolls back
-src/scanRunner.js    project -> scan -> poll -> results -> classify -> explain -> email
-src/checkmarx.js     Checkmarx One REST client
-src/fusion.js        Normalisation and Fusion-only classification
-src/explain.js       Claude explanations and executive summary
-src/knowledge.js     Built-in plain-language fallback
-src/samples.js       Sample repositories
-src/admin-auth.js    Admin password and sessions
-src/config.js        Environment defaults + settings saved from the admin panel
-src/integrity/       File list, Sigstore verification, integrity service
-src/updates/         Registry client, installed versions, update service
-public/              Registration page, results view, admin panel (vanilla JS)
-.github/workflows/   Build, smoke test, publish and sign
+src/server.js        Express app: visitor API, AI assist, admin API, pages
+src/scanRunner.js    options → profile → project/application → scan → poll → Fusion correlate → results → outcome → email
+src/checkmarx.js     Checkmarx One: tenant options, scan config, projects, applications, scans, results, Fusion services
+src/cxone/           Endpoints from the API key, token provider, HTTP client with retries and pagination (CxMissionZero)
+src/assist.js        AI Triage and AI Remediation: live calls, demo simulation, scopes, developer brief data
+src/fusion.js        Result normalisation, the Fusion fingerprint, Fusion-only classification
+src/outcome.js       Exposure score, blind spots, first moves, headline and verdict
+src/knowledge.js     Plain-language templates per weakness (Fusion's own insight first)
+src/profiles.js      The invitee directory: search, pick, CSV, demo seed
+src/cities.js        City photography: Wikimedia Commons fetch, uploads, credits
+src/config.js        Settings schema, env defaults, admin overrides, connection derivation
+src/env-import.js    .env upload → settings
+src/mailer.js        Branded invitation, results and developer-brief emails
+src/integrity/ src/updates/ src/launch.js   Signed file list, Sigstore verification, self-update with rollback
+public/app.js        The visitor experience (vanilla JS, no build)   public/admin.js  The admin console
+public/themes.js     City palettes, skylines, photo rotation          public/styles.css  Command-center look
+REQUIREMENTS.md      The full requirement set, written to be handed to another engine
 ```
