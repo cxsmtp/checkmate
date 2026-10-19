@@ -541,3 +541,29 @@ dl.info dt { color: var(--muted); } dl.info dd { margin: 0; word-break: break-wo
   .fusion-live { grid-template-columns: 1fr; justify-items: center; text-align: center; }
   dl.info { grid-template-columns: 1fr; }
 }
+
+/* Business impact: the saving, in the visitor's currency */
+.outcome-hero.with-money { grid-template-columns: 180px minmax(0, 1fr) minmax(200px, 240px); }
+.hero-money { min-height: 0; align-self: stretch; display: grid; align-content: center; gap: 4px; text-align: left; padding: 16px 18px; border: 0; border-radius: 14px; background: linear-gradient(135deg, #17492e, #2f6e3f 65%, #8a7a2c); color: #fff; cursor: pointer; }
+.hero-money .loop-k { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; opacity: .85; }
+.hero-money b { font-family: var(--display); font-size: clamp(28px, 2.6vw, 38px); font-weight: 560; letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.hero-money small { font-size: 12.5px; opacity: .9; }
+.hero-money em { font-style: normal; font-size: 12.5px; font-weight: 600; margin-top: 4px; }
+.impact { border-color: color-mix(in srgb, var(--ok) 40%, var(--border)); background: linear-gradient(160deg, color-mix(in srgb, var(--ok) 7%, var(--surface)), var(--surface) 60%); }
+.impact h2 { margin: 2px 0 0; }
+.impact-controls { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.impact-hero { display: grid; grid-template-columns: minmax(240px, 1fr) 2.2fr; gap: 14px; align-items: stretch; }
+.impact-total { padding: 18px 20px; border-radius: 14px; background: linear-gradient(135deg, #17492e, #2f6e3f 65%, #8a7a2c); color: #fff; display: grid; align-content: center; gap: 4px; }
+.impact-total .loop-k { color: inherit; opacity: .9; }
+.impact-total b { font-family: var(--display); font-size: clamp(32px, 3.3vw, 50px); overflow-wrap: anywhere; font-weight: 560; letter-spacing: -0.02em; line-height: 1.02; font-variant-numeric: tabular-nums; }
+.impact-total small { font-size: 13px; opacity: .92; }
+.impact-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.impact-card { padding: 12px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); display: grid; gap: 2px; }
+.impact-card .loop-k { font-size: 11.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--head); }
+.impact-card b { font-family: var(--display); font-size: 26px; font-weight: 560; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.impact-card small { color: var(--muted); font-size: 12.5px; }
+.impact-card.risk b { color: var(--accent); }
+.impact-how { margin-top: 12px; font-size: 13px; color: var(--muted); }
+.impact-how summary { cursor: pointer; font-weight: 600; color: var(--text); }
+.impact-how ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 3px; columns: 2; }
+@media (max-width: 900px) { .impact-hero, .impact-cards { grid-template-columns: 1fr; } .impact-how ul { columns: 1; } .outcome-hero.with-money { grid-template-columns: 1fr; } .hero-money { justify-self: stretch; } }

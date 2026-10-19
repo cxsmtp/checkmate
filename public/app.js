@@ -1,4 +1,5 @@
 import { THEMES, applyTheme, nearestCity, cityFromTimeZone, paintSkylines, setPhotos, paintPhotos } from './themes.js';
+import { computeImpact, regionFor, formatMoney, formatCompact } from './impact.js';
 
 const app = document.getElementById('app');
 
@@ -145,13 +146,14 @@ function askForCity() {
   const suggested = city ?? cityFromTimeZone() ?? (site.defaultCity !== 'auto' ? site.defaultCity : null);
   const status = h('p', { class: 'city-status', role: 'status' });
   const close = () => { modal.remove(); document.getElementById('city-chip')?.focus(); };
-  const choose = (key) => { setCity(key); close(); };
+  // The outcome's amounts follow the city's currency: redraw it.
+  const choose = (key) => { setCity(key); close(); if (current?.stage === 'complete' && location.pathname.startsWith('/s/')) route(); };
   const locate = h('button', { class: 'primary', type: 'button', onclick: () => {
     if (!window.isSecureContext || !navigator.geolocation) { status.textContent = 'Location needs a secure (https) connection here. Please pick your city below.'; return; }
     locate.disabled = true; status.textContent = 'Finding you…';
     navigator.geolocation.getCurrentPosition(({ coords }) => {
       const found = nearestCity(coords.latitude, coords.longitude);
-      if (found.key) { status.textContent = `${THEMES[found.key].greeting}! Theming everything for ${THEMES[found.key].name}.`; setCity(found.key); setTimeout(close, 900); }
+      if (found.key) { status.textContent = `${THEMES[found.key].greeting}! Theming everything for ${THEMES[found.key].name}.`; setTimeout(() => choose(found.key), 900); }
       else { locate.disabled = false; status.textContent = `No theme for your area yet (nearest is ${THEMES[found.nearest].name}, ${Math.round(found.d)} km away). Pick one below.`; }
     }, (err) => { locate.disabled = false; status.textContent = err.code === 1 ? 'No problem — pick your city below.' : 'We could not find your location. Pick your city below.'; }, { timeout: 10000, maximumAge: 3_600_000 });
   } }, '📍 Use my location');
@@ -384,7 +386,7 @@ function renderDetails() {
 // ---------------------------------------------------------------------------
 let pollTimer = null;
 let current = null;
-const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '', otab: 'overview' };
+const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '', otab: 'overview', impactScope: 'fusion', repos: 1 };
 
 async function renderSession(id, key, { reload = true } = {}) {
   clearTimeout(pollTimer);
@@ -502,6 +504,7 @@ function outcomeView(s, id, key, rerender) {
   const tabs = [
     ['overview', 'Overview'],
     s.assistEnabled !== false ? ['loop', busy ? '✦ Close the loop · running' : fixes ? `✦ Close the loop · ${fixes} fixed` : '✦ Close the loop'] : null,
+    site.impact ? ['impact', 'Business impact'] : null,
     corr.length || map ? ['fusion', 'What Fusion saw'] : null,
     ['results', 'All results', all.length],
   ].filter(Boolean);
@@ -510,8 +513,11 @@ function outcomeView(s, id, key, rerender) {
     h('button', { type: 'button', class: `ptab ${k === tab ? 'active' : ''} ${k === 'loop' ? 'gold' : ''}`, onclick: () => go(k) }, l, n != null ? h('span', { class: 'count' }, n) : null)));
 
   let body;
+  // What fixing the Fusion gaps is worth, in the visitor's currency (the Business impact tab has the detail).
+  const im = site.impact && s.fusionOnly.length ? impactFor(s, 'fusion', 1) : null;
+  const money = im ? h('button', { type: 'button', class: 'hero-money', onclick: () => { ui.impactScope = 'fusion'; go('impact'); } }, h('span', { class: 'loop-k' }, 'Business impact'), h('b', {}, formatCompact(im.money.net, im.currency, im.locale)), h('small', {}, `saved by fixing the ${s.fusionOnly.length} Fusion gap${s.fusionOnly.length === 1 ? '' : 's'} now · ${im.hours.total} h back`), h('em', {}, 'See how →')) : null;
   if (tab === 'overview') body = h('div', { class: 'overview' },
-    h('section', { class: 'panel outcome-hero' },
+    h('section', { class: `panel outcome-hero ${money ? 'with-money' : ''}` },
       dial(o.exposure?.score ?? 0, o.exposure?.band ?? 'Low'),
       h('div', {},
         h('h1', {}, o.headline),
@@ -519,7 +525,8 @@ function outcomeView(s, id, key, rerender) {
         h('div', { class: 'scan-facts' }, (o.scanned?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
         h('div', { class: 'row', style: 'margin-top:14px' },
           s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => go('loop') }, '✦ Triage and fix with AI →') : null,
-          h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`)))),
+          h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`))),
+      money),
     h('div', { class: 'tiles' },
       h('button', { type: 'button', class: 'tile fusion', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, h('b', {}, c.fusionOnly ?? 0), h('span', {}, 'found only by Fusion')),
       h('div', { class: 'tile' }, h('b', {}, c.total ?? 0), h('span', {}, 'total findings')),
@@ -529,6 +536,7 @@ function outcomeView(s, id, key, rerender) {
       h('div', { class: 'panel' }, h('h4', {}, 'Where rule-based scanning was blind'), o.blindSpots?.length ? h('div', { class: 'blind' }, o.blindSpots.slice(0, 4).map((t) => h('div', { class: 'blind-row' }, h('span', {}, h('b', {}, t.label), h('span', { class: 'muted' }, ` · worst ${titleCase(t.worst)}`)), h('span', { class: 'tag accent' }, `${t.fusionOnly} Fusion-only`), h('span', { class: 'bar' }, h('i', { style: `width:${Math.round((t.fusionOnly / Math.max(1, c.fusionOnly)) * 100)}%` }))))) : h('p', { class: 'muted' }, 'Nothing Fusion-only on this scan: the rules covered it.')),
       h('div', { class: 'panel' }, h('h4', {}, 'First moves'), h('ol', { class: 'moves' }, (o.firstMoves ?? []).slice(0, 5).map((m) => h('li', {}, m))))));
   else if (tab === 'loop') body = loopPanel(s, id, key, rerender);
+  else if (tab === 'impact') body = impactPanel(s, rerender, go);
   else if (tab === 'fusion') body = h('div', { class: 'grid two' },
     h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'What Fusion re-scored, and why'), corr.length ? h('div', { class: 'corr' }, corr.map((f) => h('button', { type: 'button', class: 'corr-row', style: 'text-align:left;min-height:0;cursor:pointer', onclick: () => { ui.selected = f.id; ui.tab = 'fusion'; ui.fusionOnly = false; ui.severities = new Set(); go('results'); } }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.explanation?.plainTitle || f.title), h('small', {}, f.correlation.reason))))) : h('p', { class: 'muted' }, o.correlation?.error || 'No risk-score changes for this scan.')),
     map ? h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'The application Fusion mapped'), h('p', { class: 'hint' }, `${map.summary?.microservices?.count ?? map.microservices?.length ?? 0} services · ${map.summary?.cloudResources?.count ?? map.resources?.length ?? 0} cloud resources · ${map.summary?.cloudResources?.access?.Public ?? 0} public`), h('div', { class: 'map' }, (map.resources ?? []).map((r) => h('div', { class: `res ${String(r.access).toLowerCase()}` }, h('b', {}, r.name), h('small', {}, r.type), h('span', { class: `tag ${String(r.access).toLowerCase() === 'public' ? 'bad' : ''}` }, r.access || 'Private')))), (map.microservices ?? []).length ? h('div', { class: 'scan-facts', style: 'margin-top:12px' }, map.microservices.map((m) => h('span', { class: 'tag' }, m.name))) : null) : null);
@@ -536,6 +544,56 @@ function outcomeView(s, id, key, rerender) {
   return h('div', { class: `outcome tab-${tab}` }, nav, body);
 }
 
+
+// --- Business impact: what finding and fixing these gaps is worth -------------------
+// The arithmetic is CxMissionZero's (Impact page, Cx Credits Calculator): public/impact.js.
+function impactFor(s, scope, repos) {
+  const findings = scope === 'fusion' ? s.fusionOnly : allFindings(s);
+  const region = regionFor(city, navigator.language, site.impact ?? {});
+  return computeImpact({ findings, verdicts: s.assist?.triage?.items ?? {}, loc: s.loc, repos, settings: site.impact ?? {}, region });
+}
+
+function impactPanel(s, rerender, go) {
+  const im = impactFor(s, ui.impactScope, ui.repos);
+  const m = (n) => formatMoney(n, im.currency, im.locale);
+  const big = (n) => formatCompact(n, im.currency, im.locale);
+  const st = im.settings;
+  const verdictNote = im.triaged ? `AI Triage verdicts on ${im.triaged}${im.findings > im.triaged ? `, ${st.fpPercent}% assumed false positives on the other ${im.findings - im.triaged}` : ''}` : `${st.fpPercent}% assumed false positives until AI Triage runs`;
+  const segment = (name, value, options, onPick) => h('div', { class: 'seg scope', role: 'radiogroup', 'aria-label': name }, options.map(([k, l, n]) =>
+    h('label', { class: value === k ? 'on' : '' }, h('input', { type: 'radio', name, value: k, checked: value === k, onchange: () => { onPick(k); rerender(); } }), h('span', {}, l), n != null ? h('span', { class: 'k' }, n) : null)));
+  const card = (label, value, note, cls = '') => h('div', { class: `impact-card ${cls}` }, h('span', { class: 'loop-k' }, label), h('b', {}, value), h('small', {}, note));
+  const regionName = city ? THEMES[city]?.name : '';
+  const scale = im.repos > 1 ? ` across ${im.repos} repositories like this one` : '';
+  const what = ui.impactScope === 'fusion' ? `the ${s.fusionOnly.length} gap${s.fusionOnly.length === 1 ? '' : 's'} only Fusion found` : `all ${allFindings(s).length} findings`;
+
+  return h('section', { class: 'panel impact' },
+    h('div', { class: 'spread', style: 'align-items:flex-start' },
+      h('div', {}, h('span', { class: 'eyebrow' }, 'Business impact'), h('h2', {}, `Finding and fixing ${what} now`), h('p', { class: 'hint', style: 'max-width:72ch;margin:4px 0 0' }, 'What it is worth to triage and fix these before release with Checkmarx One AI, instead of by hand — and before they reach production, where the same fix costs several times more.')),
+      h('span', { class: 'tag' }, `${im.currency}${regionName ? ` · ${regionName} rates` : ''}`)),
+    h('div', { class: 'impact-controls' },
+      segment('impact-scope', ui.impactScope, [['fusion', '✦ Fusion gaps', s.fusionOnly.length], ['all', 'Everything found', allFindings(s).length]], (k) => { ui.impactScope = k; }),
+      segment('impact-repos', ui.repos, [[1, 'This repository'], [10, '× 10'], [50, '× 50'], [250, '× 250']], (k) => { ui.repos = Number(k); })),
+    h('div', { class: 'impact-hero' },
+      h('div', { class: 'impact-total' },
+        h('span', { class: 'loop-k' }, im.money.cost === null ? 'Saved' : 'Saved, after credits'),
+        h('b', {}, big(im.money.net)),
+        h('small', {}, `${im.hours.total.toLocaleString()} engineering hours (${im.hours.days.toLocaleString()} days) back${scale}`)),
+      h('div', { class: 'impact-cards' },
+        card('Engineering time', m(im.money.timeValue), `${im.hours.triage.toLocaleString()} h triage + ${im.hours.fix.toLocaleString()} h fixing at ${m(im.rate)} an hour`),
+        card('Avoided after release', m(im.money.avoided), `the same ${im.truePositives.toLocaleString()} fixes at ${st.releaseMultiplier}× once in production`),
+        card('Real risks closed', im.truePositives.toLocaleString(), verdictNote, 'risk'),
+        card('Checkmarx One credits', im.credits.total.toLocaleString(), im.money.cost === null ? `${im.credits.triage} triage · ${im.credits.remediation} remediation${im.credits.fusion ? ` · ${im.credits.fusion} Fusion` : ''}` : `${m(im.money.cost)}${im.roi ? ` · ${im.roi}× return` : ''}`))),
+    h('details', { class: 'impact-how' },
+      h('summary', {}, 'How it is worked out'),
+      h('ul', {},
+        h('li', {}, `Triage by hand: ${st.triageMinutes} min a finding; a fix by hand: ${st.fixMinutes} min (the CxMissionZero Impact defaults).`),
+        h('li', {}, `Engineering hour: ${m(im.rate)}, fully loaded${im.rateFrom === 'region' ? ` — the ${im.currency} regional rate` : ' — set by your team'}.`),
+        h('li', {}, `Real findings: ${verdictNote}; false positives cost their triage only.`),
+        h('li', {}, `After release a fix costs ${st.releaseMultiplier}× (find, hotfix, retest, redeploy); the saving counts the extra ${st.releaseMultiplier - 1}×.`),
+        h('li', {}, `Credits (Cx Credits Calculator): 1 per finding triaged, 3 per finding remediated${im.loc ? `, Fusion ${st.fusionCreditsPer10k || '—'} per 10K lines × ${Math.ceil(im.loc / 10000)} units (${im.loc.toLocaleString()} lines scanned)` : ''}${im.money.cost === null ? '; not priced' : `, ${m(st.creditPrice)} each`}.`))),
+    h('div', { class: 'row', style: 'margin-top:12px' },
+      s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => { ui.assistScope = ui.impactScope === 'fusion' ? 'fusion' : 'all'; go('loop'); } }, '✦ Make it real: triage and fix with AI →') : null));
+}
 
 // --- Closing the loop: AI Triage → AI Remediation → developers ---------------------
 const VERDICT = {

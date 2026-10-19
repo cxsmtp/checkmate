@@ -65,6 +65,8 @@ test('Automatic mode: real scan and results with the key alone; AI Triage simula
   assert.equal(done.mode, 'live');
   assert.equal(done.assistSimulated, true);
   assert.equal(done.summary.fusionOnly, 4);
+  assert.equal(done.loc, 23456, 'lines of code read from sast-metadata, for the Fusion credits');
+  assert.equal(cfg.impact.triageMinutes, 20, 'Business impact settings reach the page');
 
   // AI Triage: simulated on those real findings, with no call to Checkmarx One AI.
   await api('POST', `/api/sessions/${reg.id}/assist/triage`, { k: reg.accessKey, scope: 'fusion' });

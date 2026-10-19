@@ -40,6 +40,7 @@ export const config = {
   profiles: {},
   assist: {},
   cities: {},
+  impact: {},
   smtp: {},
   /** The connection worked out from the API key (tenant, region, URLs); null until a key is set. */
   connection: null,
@@ -116,6 +117,19 @@ export const SETTINGS = {
   'assist.pollIntervalMs': { env: 'ASSIST_POLL_INTERVAL_MS', default: 8000, type: 'number' },
   'assist.timeoutMs': { env: 'ASSIST_TIMEOUT_MS', default: 30 * 60 * 1000, type: 'number' },
 
+  // Business impact on the outcome page (the arithmetic of CxMissionZero's Impact page and Cx Credits Calculator)
+  'impact.enabled': { env: 'IMPACT_ENABLED', default: true, type: 'boolean' },
+  'impact.triageMinutes': { env: 'IMPACT_TRIAGE_MINUTES', default: 20, type: 'number' },
+  'impact.fixMinutes': { env: 'IMPACT_FIX_MINUTES', default: 120, type: 'number' },
+  'impact.fpPercent': { env: 'IMPACT_FP_PERCENT', default: 30, type: 'number' },
+  'impact.releaseMultiplier': { env: 'IMPACT_RELEASE_MULTIPLIER', default: 6, type: 'number' },
+  // 0 / empty: the region's fully loaded hourly rate and currency (the visitor's city)
+  'impact.hourlyRate': { env: 'IMPACT_HOURLY_RATE', default: 0, type: 'number' },
+  'impact.currency': { env: 'IMPACT_CURRENCY', default: '', type: 'currency' },
+  // 0: credits are counted, not priced
+  'impact.creditPrice': { env: 'IMPACT_CREDIT_PRICE', default: 0, type: 'number' },
+  'impact.fusionCreditsPer10k': { env: 'IMPACT_FUSION_CREDITS_PER_10K', default: 0, type: 'number' },
+
   // Real city photography (Wikimedia Commons, Creative Commons / public domain) fetched at start when missing
   'cities.autoFetch': { env: 'CITY_PHOTOS_AUTO', default: true, type: 'boolean' },
 
@@ -171,6 +185,11 @@ function coerce(def, raw) {
     case 'image':
       if (!isSafeImageUrl(raw)) throw new Error('Must be an https address or an uploaded PNG, JPG, SVG or WebP of up to 300 KB.');
       return String(raw).trim();
+    case 'currency': {
+      const c = String(raw).trim().toUpperCase();
+      if (c && !/^[A-Z]{3}$/.test(c)) throw new Error('Must be a three-letter currency code such as AED, USD or SGD (empty: the visitor\'s region).');
+      return c;
+    }
     case 'color': {
       const c = String(raw).trim();
       if (c && !/^#[0-9a-f]{6}$/i.test(c)) throw new Error('Must be a hex colour such as #5b2be0.');

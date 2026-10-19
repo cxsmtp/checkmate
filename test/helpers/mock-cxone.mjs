@@ -68,6 +68,7 @@ export async function startMockCxOne({ scanPolls = 2, triagePolls = 1, remediati
 
     // --- scans ---
     if (p === '/api/scans' && req.method === 'POST') return json(res, 201, { id: state.scanId, status: 'Queued', projectId: body.project.id });
+    if (p === `/api/sast-metadata/${state.scanId}`) return json(res, 200, { scanId: state.scanId, loc: 23456, fileCount: 120 });
     if (p === `/api/scans/${state.scanId}`) {
       state.scanLooks += 1;
       const done = state.scanLooks > scanPolls;

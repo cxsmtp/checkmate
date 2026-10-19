@@ -15,6 +15,7 @@ import { send, inviteEmail, fixesEmail, resultsLink, verifySmtp } from './mailer
 import { testConnection, scanUiUrl } from './checkmarx.js';
 import { parseEnvText, settingsFromEnv, isSecretVariable } from './env-import.js';
 import * as assist from './assist.js';
+import { impactSettings } from '../public/impact.js';
 import * as cities from './cities.js';
 import { IntegrityService } from './integrity/service.js';
 import { UpdateService } from './updates/service.js';
@@ -191,6 +192,7 @@ app.get('/api/config', (req, res) =>
     profilesMinChars: config.profiles.minChars,
     connected: Boolean(config.connection) || !isLive(),
     tenantRegion: config.connection?.regionLabel ?? '',
+    impact: config.impact.enabled ? impactSettings(config.impact) : null,
   }),
 );
 

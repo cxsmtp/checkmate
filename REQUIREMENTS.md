@@ -70,6 +70,16 @@ This document states everything Checkmate is required to do, in enough detail to
 7.8. Runs survive reloads (state is on the session); a server restart marks a running job failed with a clear message. Rate limited; off switch and time limits in settings. All runs audited.
 7.9. Credits are not metered by Checkmate (the environment is for executives); the live mode spends the tenant's AI credits and says so in Settings.
 
+### 7a. Business impact
+
+7a.1. A **Business impact** tab on the Outcome page (and a card in the Overview hero) states what finding and fixing the gaps now saves, in money, with the assumptions beside it. The arithmetic is CxMissionZero's (Impact page, Cx Credits Calculator), in `public/impact.js`, shared by the page and the tests.
+7a.2. **Currency by region**: the visitor's city (Dubai → AED, New York / Boston → USD, Singapore → SGD, Melbourne → AUD); without a city, the browser's country (en-GB → GBP, de-DE → EUR …); USD otherwise. An administrator may fix one currency for everyone. Amounts are written unambiguously (SGD 9,000, A$9,000, AED 9,000). Choosing another city redraws the amounts.
+7a.3. **Engineering time**: findings × minutes to triage by hand (20) + real findings × minutes to fix by hand (120), valued at the region's fully loaded engineering hour (USD 110, AED 250, SGD 90, AUD 100, EUR 85, GBP 80 …) or the administrator's rate.
+7a.4. **Real findings**: AI Triage's verdicts where it has run (Vulnerable / Confirmed / Urgent are real; Not exploitable / Probably not exploitable are not); 30% assumed false positives on the rest. False positives cost their triage only.
+7a.5. **Avoided after release**: the same fixes once in production cost 6× (find, hotfix, retest, redeploy); the saving counts the extra 5×.
+7a.6. **Credits**: 1 per finding triaged, 3 per finding remediated, plus the Fusion scan (whole 10K-line units of the scanned lines × credits per 10K LOC, when set); lines from `GET /api/sast-metadata/{scanId}`. Priced (and subtracted, with the return multiple) only when a credit price is set.
+7a.7. Scope **✦ Fusion gaps** (default) or **Everything found**; scale **This repository / × 10 / × 50 / × 250 repositories like this one**. *How it is worked out* lists every assumption with its value. Every number is editable under Admin → Settings → Business impact.
+
 ## 8. Branding, theming and photography
 
 8.1. Branding settings (as CxMissionZero): app name, company name, logo (https or uploaded ≤ 300 KB data URL), icon, logo height, accent colour (hex) or palette (ink, lagoon, sage, plum, ochre, **city** = follows the visitor's city), dark / light / auto, look (command-center / classic), call to action, event name, tagline, venue, footer. A live header preview in the admin; applied to the page, the tab icon and emails.
@@ -90,6 +100,7 @@ Checkmarx One: `CX_API_KEY` (secret), `CX_BASE_URL`, `CX_IAM_URL`, `CX_TENANT` (
 Scan: `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (JSON array).
 Fusion: `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS`.
 AI assist: `ASSIST_MODE` simulated|live (default simulated; live only with live scans), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS`.
+Business impact: `IMPACT_ENABLED`, `IMPACT_TRIAGE_MINUTES`, `IMPACT_FIX_MINUTES`, `IMPACT_FP_PERCENT`, `IMPACT_RELEASE_MULTIPLIER`, `IMPACT_HOURLY_RATE`, `IMPACT_CURRENCY`, `IMPACT_CREDIT_PRICE`, `IMPACT_FUSION_CREDITS_PER_10K`.
 Profiles: `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`.
 Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; alias `SMTP_PASSWORD`), `SMTP_FROM` (alias `SMTP_FROM_ADDRESS`), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL`.
 Container: `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS`, `UPDATE_START_TIMEOUT_SECONDS`.
