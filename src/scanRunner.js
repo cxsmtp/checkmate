@@ -130,7 +130,8 @@ async function runLive(session, log) {
   }
 
   setStage(session.id, 'fetching-results');
-  return { raw: await cx.getResults(scanId), fusion };
+  const [raw, loc] = await Promise.all([cx.getResults(scanId), cx.scanLoc(scanId)]);
+  return { raw, fusion, loc };
 }
 
 async function runDemo(session) {
@@ -159,7 +160,7 @@ async function runDemo(session) {
   }
   setStage(session.id, 'fetching-results');
   const raw = demoResults().filter((r) => session.profile.fusion || !(r.type === 'sast' && r.data?.queryId === 0));
-  return { raw, fusion };
+  return { raw, fusion, loc: 46_800 };
 }
 
 export async function runScan(id, log = console) {
@@ -167,7 +168,7 @@ export async function runScan(id, log = console) {
   running.add(id);
   try {
     const session = store.load(id);
-    const { raw, fusion } = liveMode() ? await runLive(session, log) : await runDemo(session);
+    const { raw, fusion, loc = null } = liveMode() ? await runLive(session, log) : await runDemo(session);
 
     const { fusionOnly, others, summary } = classify(raw);
     attachFusionCorrelation(fusionOnly, others, fusion);
@@ -176,7 +177,7 @@ export async function runScan(id, log = console) {
     const outcome = buildOutcome(fusionOnly, others, { profile: session.profile, repoName: `${session.repo.owner}/${session.repo.repo}` });
     outcome.correlation = { status: fusion.status, error: fusion.error, changed: fusion.riskScores.length, raised: fusion.riskScores.filter((r) => r.newRiskValue > r.oldRiskValue).length, lowered: fusion.riskScores.filter((r) => r.newRiskValue < r.oldRiskValue).length };
 
-    const done = setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap: fusion.map, completedAt: new Date().toISOString() });
+    const done = setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap: fusion.map, loc, completedAt: new Date().toISOString() });
     if (done.sampleId) samples.recordScan(done.sampleId, done.id, done.completedAt, !done.cx?.demo);
     if (done.kind === 'sample-refresh') return;
 
@@ -226,7 +227,7 @@ export function reuseSampleScan(id, sourceId) {
   if (source?.stage !== 'complete') return false;
   // Never show a simulated result as a real one, or the other way round.
   if (Boolean(source.cx?.demo) === liveMode()) return false;
-  const { fusionOnly, others, summary, outcome, fusionMap, cx: scan, completedAt, profile } = source;
-  setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap, cx: scan, completedAt, profile, reusedFrom: { sessionId: sourceId, completedAt } });
+  const { fusionOnly, others, summary, outcome, fusionMap, loc, cx: scan, completedAt, profile } = source;
+  setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap, loc, cx: scan, completedAt, profile, reusedFrom: { sessionId: sourceId, completedAt } });
   return true;
 }

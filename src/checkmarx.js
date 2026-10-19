@@ -147,6 +147,13 @@ export async function getResults(scanId) {
   return all;
 }
 
+/** Lines of code SAST scanned (GET /api/sast-metadata/{scanId} → loc), for the Fusion credits; null when not known. */
+export async function scanLoc(scanId) {
+  const meta = await client().request(`/api/sast-metadata/${encodeURIComponent(scanId)}`).catch(() => null);
+  const loc = Number(meta?.loc);
+  return Number.isFinite(loc) && loc > 0 ? Math.round(loc) : null;
+}
+
 /** The scan's results in the Checkmarx One web app. */
 export const scanUiUrl = (projectId, scanId) =>
   config.connection ? `${config.connection.baseUrl}/results/${encodeURIComponent(projectId)}/${encodeURIComponent(scanId)}/sast` : '';

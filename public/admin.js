@@ -512,6 +512,17 @@ const SECTIONS = [
     ['assist.pollIntervalMs', 'Poll interval (ms)', { type: 'number' }],
     ['assist.timeoutMs', 'Time limit per run (ms)', { type: 'number' }],
   ] },
+  { id: 'impact', title: 'Business impact', intro: 'The Business impact tab on the outcome page: what triaging and fixing the findings with Checkmarx One AI saves, in the visitor\'s currency (their city: Dubai AED, New York and Boston USD, Singapore SGD, Melbourne AUD). The arithmetic of CxMissionZero\'s Impact page and Cx Credits Calculator: hours by hand × a fully loaded hourly rate, plus the extra cost of the same fixes after release, less the credits when a credit price is set.', fields: [
+    ['impact.enabled', 'Show Business impact on the outcome page', { checkbox: true }],
+    ['impact.triageMinutes', 'Minutes to triage a finding by hand', { type: 'number' }],
+    ['impact.fixMinutes', 'Minutes to fix a finding by hand', { type: 'number' }],
+    ['impact.fpPercent', 'False positives assumed before AI Triage runs (%)', { type: 'number' }],
+    ['impact.releaseMultiplier', 'A fix after release costs (× the fix before)', { type: 'number' }],
+    ['impact.hourlyRate', 'Fully loaded engineering hour', { type: 'number', hint: '0: the region\'s rate (USD 110, AED 250, SGD 90, AUD 100, EUR 85, GBP 80 …)' }],
+    ['impact.currency', 'Currency', { placeholder: 'empty: the visitor\'s region', hint: 'three letters, e.g. AED — one currency for every visitor' }],
+    ['impact.creditPrice', 'Price of one Checkmarx One credit', { type: 'number', hint: '0: credits are counted, not priced' }],
+    ['impact.fusionCreditsPer10k', 'Fusion credits per 10K lines of code', { type: 'number', hint: '0: Fusion scan credits left out' }],
+  ] },
   { id: 'profiles', title: 'Profiles & samples', fields: [
     ['profiles.lookup', 'Offer profile type-ahead on the visitor page', { checkbox: true }],
     ['profiles.minChars', 'Letters typed before profiles are offered', { type: 'number' }],
