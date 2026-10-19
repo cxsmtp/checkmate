@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from './config.js';
+import { config, isLive } from './config.js';
 import { isEmail } from './validation.js';
 
 /**
@@ -130,7 +130,9 @@ export function search(q, limit = 8) {
   const needle = String(q ?? '').trim().toLowerCase();
   if (needle.length < Math.max(1, config.profiles.minChars)) return [];
   const words = needle.split(/\s+/);
+  // The fictional demo profiles never show up at a live event.
   const scored = readAll()
+    .filter((p) => !(p.source === 'demo' && isLive()))
     .map((p) => {
       const name = p.name.toLowerCase();
       const company = p.company.toLowerCase();

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark" data-accent="city">
+<html lang="en" data-theme="auto" data-accent="ink">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,29 +8,43 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header class="console">
-    <a class="brand" href="/" id="brand">
-      <span class="brand-mark" id="brand-mark">♞</span>
-      <span class="brand-name" id="brand-name">Checkmate</span>
-      <span class="brand-co" id="brand-co"></span>
-    </a>
-    <ol class="steps" id="steps" aria-label="Progress">
-      <li data-step="who"><i></i>You</li>
-      <li data-step="repo"><i></i>Repository</li>
-      <li data-step="profile"><i></i>Scan</li>
-      <li data-step="scan"><i></i>Running</li>
-      <li data-step="outcome"><i></i>Outcome</li>
-    </ol>
-    <div class="console-right">
-      <button type="button" class="chip" id="tenant-chip" hidden><i></i><span>Checkmarx One</span></button>
-      <button type="button" class="chip" id="city-chip" hidden><span>📍 Choose your city</span></button>
-      <span class="chip" id="version-chip" style="cursor:default"><span class="ver" id="version"></span></span>
+  <div class="shell">
+    <!-- The console: dark in both themes, as in CxMissionZero -->
+    <aside class="sidebar">
+      <a class="brand" href="/" id="brand">
+        <span class="brand-mark" id="brand-mark">♞</span>
+        <span class="brand-text"><strong class="brand-name" id="brand-name">Checkmate</strong><span class="brand-co" id="brand-co"></span></span>
+      </a>
+      <nav class="nav" id="steps" aria-label="Progress">
+        <p class="nav-group"><i></i>Your visit</p>
+        <div class="tab" data-step="who"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg><span>You</span></div>
+        <div class="tab" data-step="repo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg><span>Repository</span></div>
+        <div class="tab" data-step="profile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/></svg><span>Scan</span></div>
+        <div class="tab" data-step="scan"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Running</span></div>
+        <div class="tab" data-step="outcome"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Outcome</span></div>
+      </nav>
+      <div class="sidebar-tools">
+        <button type="button" class="side-btn" id="city-chip" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg><span>Choose your city</span></button>
+        <button type="button" class="side-btn" id="tenant-chip" hidden><i class="live"></i><span>Checkmarx One</span></button>
+      </div>
+      <p class="sidebar-foot" id="footer-left"></p>
+      <span class="app-version" id="version"></span>
+    </aside>
+
+    <div class="content">
+      <header class="topbar">
+        <div class="topbar-title">
+          <div class="title-row"><span class="stage-chip" id="page-stage" hidden></span><h1 id="page-title">Welcome</h1></div>
+          <p class="page-sub" id="page-sub"></p>
+        </div>
+        <div class="topbar-actions" id="topbar-actions">
+          <button type="button" class="ghost sm" id="team-btn" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.5a6.5 6.5 0 0 1 3.5 5.5"/></svg><span>Team</span></button>
+          <button type="button" class="look-btn" id="theme-btn" title="Light, dark or the device's" aria-label="Light, dark or the device's"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+        </div>
+      </header>
+      <main id="app" class="page" aria-live="polite"></main>
     </div>
-  </header>
-
-  <main id="app" class="stage" aria-live="polite"></main>
-  <footer class="footer"><span id="footer-left"></span><span>Powered by Checkmarx One · Fusion</span></footer>
-
+  </div>
   <script src="/app.js" type="module"></script>
 </body>
 </html>

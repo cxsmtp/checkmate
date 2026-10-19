@@ -23,7 +23,7 @@ This document states everything Checkmate is required to do, in enough detail to
 3.1. A **profile directory** of everyone invited: name, email, company, title, technical owner (name, email), team (name, email, role), city, repositories, tags, phone, notes; source (admin / CSV / registration / demo), created time, visit count.
 3.2. Admin: add, edit, remove; **CSV import** with header aliases (`name|full name`, `email|work email`, `company|organisation|account`, `title|job title|role`, `technical_name`, `technical_email`, `team|colleagues|invitees` (addresses split on `;`, `,`, spaces), `city|location`, `tags`, `phone`, `notes`); rows with an existing email update the profile; **CSV export**.
 3.3. **Type-ahead on the welcome screen**: after `profiles.minChars` letters (default 2) of a name or company, show matching profiles as cards (initials, name, title · company, "Invited" / "Welcome back"). The search endpoint returns **no email addresses**. Picking a card fills the person, the technical owner, the team and remembered repositories; the visitor only adds the repository URL and consents.
-3.4. Every registration **updates the directory** (new people added, known ones updated; never replaced wholesale). In demo mode five clearly fictional profiles are seeded when the directory is empty.
+3.4. Every registration **updates the directory** (new people added, known ones updated; never replaced wholesale). In the demo five clearly fictional profiles are seeded when the directory is empty; they never appear in the type-ahead once scans are live.
 
 ## 4. The visitor flow
 
@@ -44,7 +44,7 @@ This document states everything Checkmate is required to do, in enough detail to
 5.5. Results: `GET /api/results?scan-id=` paged (page-numbered offsets), normalised to one shape: id, similarityId, **alternateId**, engine, underlying type, title, severity, state, status, CWE, CVE, CVSS, file/line, sink file/line, language, package, recommended version, description, **Fusion insight**, expected/actual, first found, data-flow nodes.
 5.6. **Fusion fingerprint**: a `type: "sast"` row with `data.queryId === 0`, a CWE-title `queryName` and a group matching `^[A-Za-z#+.]+_(CRITICAL|HIGH|MEDIUM|LOW|INFO)$` is a Fusion result (switchable), as are rows whose type/engine fields contain a configured marker. A Fusion finding is **Fusion-only** unless a rule-based finding has the same weakness (CWE or query) in the same file within ±3 lines at source or sink; then the rule-based one is **confirmed by both**.
 5.7. Risk-score changes are attached to findings by `resultId` as `correlation { oldRisk, newRisk, direction raised|lowered|unchanged, with, reason }`.
-5.8. Sample repositories: the newest completed scan is reused for `sampleReuseHours` (results shown instantly), then a fresh scan is started; the admin can "Scan now".
+5.8. Sample repositories: the newest completed scan **of the same kind (real or demo)** is reused for `sampleReuseHours` (results shown instantly), then a fresh scan is started; the admin can "Scan now".
 
 ## 6. The Outcome
 
@@ -64,7 +64,7 @@ This document states everything Checkmate is required to do, in enough detail to
 7.2. Eligibility: SAST and SCA findings (Fusion results are SAST results); others are reported as not actionable by AI with the reason.
 7.3. **AI Triage (live)**: `POST /api/ai-triage/triage { scanID, buckets: [{ scannerType: "sast"|"sca", resultIDs: [alternateId…] }] }` once per run; then poll `GET /api/ai-triage/triage/{projectId}/{groupId}` (groupId = similarityId for SAST; `similarityId#-#packageIdentifier#-#projectId` for SCA) until `triageStatus` leaves `IN_PROGRESS|NOT_TRIAGED|PENDING|QUEUED|RUNNING|TO_VERIFY`; keep verdict, confidence (`analysis.confidence.score`), reachability, exploitability and the first non-empty reason field. Verdict words: Vulnerable, Confirmed, Urgent, Uncertain, Probably not exploitable, Not exploitable, Risk accepted, Triage failed.
 7.4. **AI Remediation (live)**: one `POST /api/remediation/remediate { scanID, buckets: [{ scannerType, resultIDs: [alternateId] }] }` per finding (stop on 402/403 and say why); poll `GET /api/remediation/remediation-details/{scanId}/{alternateId}` until `results[0]` has `finishedAt`, `data.summary` or `file_changes`, or fails; keep summary, how, why, `file_changes[{file_path, diff, analysis}]`, tests, pull-request URL (http(s) only). Findings triaged not exploitable are skipped; fixes already written are kept.
-7.5. **Demo mode** runs the same stages, timings and data shapes against a simulation (deterministic per finding): Fusion-only → Vulnerable with high confidence and Fusion's insight as the reason; lowered risk → Probably not exploitable with the correlation reason; one secure-pattern fix per weakness class as a unified diff on the finding's file and line.
+7.5. **Simulated** (the default, `ASSIST_MODE=simulated`, and always in the demo) runs the same stages on the real findings of the real scan, without calling Checkmarx One AI or spending credits, and is labelled *simulation* on the page; *Live* is switched on in the admin panel. The simulation runs timings and data shapes against a simulation (deterministic per finding): Fusion-only → Vulnerable with high confidence and Fusion's insight as the reason; lowered risk → Probably not exploitable with the correlation reason; one secure-pattern fix per weakness class as a unified diff on the finding's file and line.
 7.6. **Send fixes to developers**: one email to the technical owner (plus optional addresses) with every fix — title, severity, location, verdict, fix, how, why, PR link, and the patch with git headers (`git apply`). Delivery state is kept and shown.
 7.7. In the table, an **AI** column shows the verdict (with confidence) and *Fix ready*; the drawer shows **✦ AI Triage** (verdict, reachability, exploitability, why) and **⚡ AI fix** (summary, how, why, per-file diff with added/removed lines coloured, tests, copy patch, PR link).
 7.8. Runs survive reloads (state is on the session); a server restart marks a running job failed with a clear message. Rate limited; off switch and time limits in settings. All runs audited.
@@ -84,12 +84,12 @@ This document states everything Checkmate is required to do, in enough detail to
 
 ## 10. Settings (environment default → admin override)
 
-Event: `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` demo|live, `SAMPLE_REUSE_HOURS`, `DEFAULT_CITY`, `ASK_LOCATION`.
+Event: `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` auto|live|demo (auto: real scans as soon as the key connects, the demo without one), `SAMPLE_REUSE_HOURS`, `DEFAULT_CITY`, `ASK_LOCATION`.
 Branding: `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`; `CITY_PHOTOS_AUTO`.
 Checkmarx One: `CX_API_KEY` (secret), `CX_BASE_URL`, `CX_IAM_URL`, `CX_TENANT` (overrides), `CX_PROJECT_PREFIX`, `CX_DEFAULT_BRANCH`, `CX_POLL_INTERVAL_MS`, `CX_SCAN_TIMEOUT_MS`, `CX_GITHUB_TOKEN` (secret), `CX_ALLOW_CUSTOM_HOST`.
 Scan: `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (JSON array).
 Fusion: `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS`.
-AI assist: `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS`.
+AI assist: `ASSIST_MODE` simulated|live (default simulated; live only with live scans), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS`.
 Profiles: `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`.
 Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; alias `SMTP_PASSWORD`), `SMTP_FROM` (alias `SMTP_FROM_ADDRESS`), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL`.
 Container: `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS`, `UPDATE_START_TIMEOUT_SECONDS`.

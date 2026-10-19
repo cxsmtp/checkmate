@@ -92,3 +92,30 @@ test('admin password: generated once, hashed, changeable, resettable', () => {
   const reset = auth.resetAdmin();
   assert.equal(auth.verifyPassword(reset), true);
 });
+
+test('mode: automatic follows the key; AI Triage & Remediation live only when switched on and scans are live', async () => {
+  const { isLive, assistLive } = await import('../src/config.js');
+  saveSettings({ mode: 'auto', 'assist.mode': 'live' });
+  assert.equal(config.connection, null);
+  assert.equal(isLive(), false, 'no usable key: the demo');
+  assert.equal(assistLive(), false, 'never live AI on simulated scans');
+  saveSettings({ mode: 'live', 'assist.mode': 'simulated' });
+  assert.equal(isLive(), true);
+  assert.equal(assistLive(), false, 'simulated unless switched on');
+  saveSettings({ 'assist.mode': 'live' });
+  assert.equal(assistLive(), true);
+  assert.ok(saveSettings({ 'assist.mode': 'sometimes' }).errors['assist.mode']);
+  saveSettings({ mode: 'demo', 'assist.mode': 'simulated' });
+});
+
+test('samples: a demo result is never reused for a live visitor', () => {
+  const { sample } = samples.create({ name: 'Mode', url: 'https://github.com/acme/mode' });
+  samples.recordScan(sample.id, 'demo-run', new Date().toISOString(), false);
+  assert.equal(samples.reusable(samples.get(sample.id)).sessionId, 'demo-run', 'demo for demo');
+  saveSettings({ mode: 'live' });
+  assert.equal(samples.reusable(samples.get(sample.id)), null, 'not for live');
+  samples.recordScan(sample.id, 'live-run', new Date().toISOString(), true);
+  assert.equal(samples.reusable(samples.get(sample.id)).sessionId, 'live-run');
+  saveSettings({ mode: 'demo' });
+  samples.remove(sample.id);
+});

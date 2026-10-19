@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { config } from './config.js';
+import { config, isLive } from './config.js';
 import { parseGithubUrl } from './validation.js';
 
 // Pre-selected repositories visitors can pick when they have no repo of their
@@ -93,17 +93,19 @@ export function remove(id) {
 }
 
 /** Remembers the newest completed scan of a sample, so the next visitor can reuse it. */
-export function recordScan(id, sessionId, completedAt) {
+export function recordScan(id, sessionId, completedAt, live = false) {
   const all = list();
   const sample = all.find((s) => s.id === id);
   if (!sample) return;
-  sample.latest = { sessionId, completedAt };
+  sample.latest = { sessionId, completedAt, live: Boolean(live) };
   write(all);
 }
 
 /** A completed scan of this sample that is recent enough to reuse, or null. */
 export function reusable(sample) {
   if (!sample?.latest?.completedAt || !config.sampleReuseHours) return null;
+  // A demo result is never reused for a live visitor, nor a live one in the demo.
+  if (Boolean(sample.latest.live) !== isLive()) return null;
   const age = Date.now() - new Date(sample.latest.completedAt).getTime();
   return age <= config.sampleReuseHours * 3_600_000 ? sample.latest : null;
 }

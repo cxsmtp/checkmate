@@ -12,7 +12,7 @@
  * In demo mode the same stages run against a simulation, so the experience can be shown
  * without spending credits; the data shapes are identical.
  */
-import { config } from './config.js';
+import { config, assistLive } from './config.js';
 import * as store from './store.js';
 import { client } from './checkmarx.js';
 import { lookup } from './knowledge.js';
@@ -30,7 +30,7 @@ export const VERDICT_WORDS = {
   PROPOSED_NOT_EXPLOITABLE: 'Probably not exploitable', NOT_EXPLOITABLE: 'Not exploitable', RISK_ACCEPTED: 'Risk accepted', FAILED: 'Triage failed',
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const liveMode = () => config.mode === 'live';
+const liveMode = () => assistLive();
 const all = (s) => [...(s.fusionOnly ?? []), ...(s.others ?? [])];
 const running = new Set();
 
@@ -71,8 +71,8 @@ export function startTriage(id, scope = 'fusion', log = console) {
   const targets = scopeOf(session, scope);
   if (!targets.length) throw Object.assign(new Error('Nothing in that scope can be triaged by AI.'), { status: 400 });
   const items = Object.fromEntries(targets.map((f) => [f.id, { status: 'queued' }]));
-  setAssist(id, 'triage', { status: 'running', scope, startedAt: new Date().toISOString(), finishedAt: null, requested: targets.length, items, error: null });
-  audit({ type: 'assist', outcome: 'info', reason: `AI Triage started for ${session.repo.url}: ${targets.length} finding(s), scope ${scope}${liveMode() ? '' : ' (demo)'}` });
+  setAssist(id, 'triage', { simulated: !liveMode(), status: 'running', scope, startedAt: new Date().toISOString(), finishedAt: null, requested: targets.length, items, error: null });
+  audit({ type: 'assist', outcome: 'info', reason: `AI Triage started for ${session.repo.url}: ${targets.length} finding(s), scope ${scope}${liveMode() ? '' : ' (simulated)'}` });
   (liveMode() ? liveTriage(id, targets, log) : demoTriage(id, targets)).catch((e) => {
     log.error?.(`AI Triage for ${id} failed: ${e.message}`);
     setAssist(id, 'triage', { status: 'failed', error: e.message, finishedAt: new Date().toISOString() });
@@ -183,8 +183,8 @@ export function startRemediation(id, scope = 'fusion', log = console) {
   const targets = scopeOf(session, scope).filter((f) => !SAFE.has(triaged[f.id]?.verdict) && triaged[f.id]?.verdict !== 'RISK_ACCEPTED' && already[f.id]?.status !== 'done');
   if (!targets.length) throw Object.assign(new Error('Nothing in that scope is left to remediate.'), { status: 400 });
   const items = { ...already, ...Object.fromEntries(targets.map((f) => [f.id, { status: 'queued' }])) };
-  setAssist(id, 'remediation', { status: 'running', scope, startedAt: new Date().toISOString(), finishedAt: null, requested: targets.length, items, error: null });
-  audit({ type: 'assist', outcome: 'info', reason: `AI Remediation started for ${session.repo.url}: ${targets.length} finding(s), scope ${scope}${liveMode() ? '' : ' (demo)'}` });
+  setAssist(id, 'remediation', { simulated: !liveMode(), status: 'running', scope, startedAt: new Date().toISOString(), finishedAt: null, requested: targets.length, items, error: null });
+  audit({ type: 'assist', outcome: 'info', reason: `AI Remediation started for ${session.repo.url}: ${targets.length} finding(s), scope ${scope}${liveMode() ? '' : ' (simulated)'}` });
   (liveMode() ? liveRemediation(id, targets, log) : demoRemediation(id, targets)).catch((e) => {
     log.error?.(`AI Remediation for ${id} failed: ${e.message}`);
     setAssist(id, 'remediation', { status: 'failed', error: e.message, finishedAt: new Date().toISOString() });

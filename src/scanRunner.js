@@ -1,4 +1,4 @@
-import { config } from './config.js';
+import { config, isLive } from './config.js';
 import * as store from './store.js';
 import * as cx from './checkmarx.js';
 import { demoResults, demoScanOptions, demoFusion } from './demo.js';
@@ -27,7 +27,7 @@ function setStage(id, stage, extra = {}) {
   });
 }
 
-const liveMode = () => config.mode === 'live';
+const liveMode = () => isLive();
 
 /** Step 1: find out what this tenant can run, and wait for the visitor's choice (or take the defaults). */
 export async function prepareScan(id, log = console) {
@@ -177,7 +177,7 @@ export async function runScan(id, log = console) {
     outcome.correlation = { status: fusion.status, error: fusion.error, changed: fusion.riskScores.length, raised: fusion.riskScores.filter((r) => r.newRiskValue > r.oldRiskValue).length, lowered: fusion.riskScores.filter((r) => r.newRiskValue < r.oldRiskValue).length };
 
     const done = setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap: fusion.map, completedAt: new Date().toISOString() });
-    if (done.sampleId) samples.recordScan(done.sampleId, done.id, done.completedAt);
+    if (done.sampleId) samples.recordScan(done.sampleId, done.id, done.completedAt, !done.cx?.demo);
     if (done.kind === 'sample-refresh') return;
 
     const recipients = [done.customer?.email, done.technical?.email].filter((v, i, a) => v && a.indexOf(v) === i);
@@ -224,6 +224,8 @@ export function resumeInFlight(log = console) {
 export function reuseSampleScan(id, sourceId) {
   const source = store.load(sourceId);
   if (source?.stage !== 'complete') return false;
+  // Never show a simulated result as a real one, or the other way round.
+  if (Boolean(source.cx?.demo) === liveMode()) return false;
   const { fusionOnly, others, summary, outcome, fusionMap, cx: scan, completedAt, profile } = source;
   setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap, cx: scan, completedAt, profile, reusedFrom: { sessionId: sourceId, completedAt } });
   return true;

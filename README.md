@@ -6,7 +6,7 @@ Checkmate is a self-contained, self-updating container for Checkmarx booths and 
 
 It needs exactly two things to run live: a **Checkmarx One API key** and **SMTP settings** — both pasted in the admin console or uploaded as a `.env` file, as in CxMissionZero. Nothing else talks to anything else.
 
-> Everything a visitor sees also works in **demo mode** (no tenant, no credits): the same stages run against a simulation with realistic data, so the booth can be rehearsed anywhere.
+> **Real scans by default.** As soon as the API key connects, every scan runs on the Checkmarx One tenant and the report shows its real results (`CX_MODE=auto`). Without a key the booth runs a **demo** with realistic data, so it can be rehearsed anywhere. **AI Triage & Remediation are simulated by default** — the same steps on the real findings, no AI credits spent — until switched to *Live* in Admin → Settings → AI Triage & Remediation (`ASSIST_MODE=live`).
 
 ---
 
@@ -27,7 +27,7 @@ Invitations can be sent at any step; the results link is private to the team.
 
 ```bash
 # Podman (one command; self-updating when AUTO_UPDATE=on)
-podman run -d --name checkmate -p 3000:3000 -v checkmate-data:/data \
+podman run -d --name checkmate -p 3333:3000 -v checkmate-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
   --env-file checkmate.env ghcr.io/cxsmtp/checkmate:latest
 podman logs checkmate            # the first start prints the admin password
@@ -36,15 +36,15 @@ podman logs checkmate            # the first start prints the admin password
 docker compose up -d && docker compose logs checkmate
 ```
 
-Open `http://<host>:3000` (use `127.0.0.1` rather than `localhost` on Windows if the browser shows an empty response) and `http://<host>:3000/admin`. Everything the app keeps lives in the `/data` volume: settings (secrets mode 0600), profiles, registrations, sample repositories, city photos, installed updates, the activity log.
+Open `http://<host>:3333` (use `127.0.0.1` rather than `localhost` on Windows if the browser shows an empty response) and `http://<host>:3333/admin`. Everything the app keeps lives in the `/data` volume: settings (secrets mode 0600), profiles, registrations, sample repositories, city photos, installed updates, the activity log.
 
-A systemd (Quadlet) service with daily image updates and automatic rollback is in [deploy/podman/README.md](deploy/podman/README.md).
+A systemd (Quadlet) service with daily image updates and automatic rollback is in [deploy/podman/README.md](deploy/podman/README.md); **AWS EC2** (Podman, port 3333, Caddy HTTPS, user-data script) is in [deploy/aws/README.md](deploy/aws/README.md).
 
 ### Configure it in two minutes
 
 1. Sign in to `/admin` with the printed password and choose your own.
 2. **Settings → Configure from a .env file**: drop a file with `CX_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` (the same variables the container takes). The settings apply at once; the Checkmarx One connection and the mail server are checked and the result shown. Or type them into the Checkmarx One and Email sections and use **Test**.
-3. The **connection card** shows what was read from the key: tenant, region, API and IAM addresses, expiry. Set **Mode** to *live*.
+3. The **connection card** shows what was read from the key: tenant, region, API and IAM addresses, expiry. **Scans** is *Automatic* by default: real Checkmarx One scans as soon as the key connects (the card says *Real (Checkmarx One)*). AI Triage & Remediation stay *Simulated* until you switch them to *Live* in the same page.
 4. **Profiles**: import the invitee list as CSV (`name, email, company, title, technical_name, technical_email, team, city, tags` — common header names are recognised). Everyone who registers is added automatically.
 5. **Branding**: app and company name, logo and icon upload, accent colour or palette, dark/light, the call to action, event name, venue, city theme, and **City photography** (fetched from Wikimedia Commons or uploaded).
 
@@ -102,11 +102,11 @@ Every setting has an environment default and can be changed in `/admin` (or by `
 
 | Group | Variables |
 | --- | --- |
-| Event & branding | `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` (demo\|live), `DEFAULT_CITY`, `ASK_LOCATION`, `SAMPLE_REUSE_HOURS`, `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`, `CITY_PHOTOS_AUTO` |
+| Event & branding | `EVENT_NAME`, `EVENT_TAGLINE`, `EVENT_VENUE`, `PUBLIC_BASE_URL`, `CX_MODE` (auto\|live\|demo, default auto), `DEFAULT_CITY`, `ASK_LOCATION`, `SAMPLE_REUSE_HOURS`, `BRAND_APP_NAME`, `BRAND_COMPANY`, `BRAND_LOGO_URL`, `BRAND_ICON_URL`, `BRAND_LOGO_HEIGHT`, `BRAND_ACCENT`, `BRAND_ACCENT_NAME`, `BRAND_LOOK`, `BRAND_THEME`, `BRAND_CTA`, `BRAND_FOOTER`, `CITY_PHOTOS_AUTO` |
 | Checkmarx One | `CX_API_KEY` (secret), `CX_BASE_URL` / `CX_IAM_URL` / `CX_TENANT` (overrides; normally derived from the key), `CX_PROJECT_PREFIX`, `CX_DEFAULT_BRANCH`, `CX_POLL_INTERVAL_MS`, `CX_SCAN_TIMEOUT_MS`, `CX_GITHUB_TOKEN` (secret), `CX_ALLOW_CUSTOM_HOST` |
 | Scan | `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (extra JSON entries) |
 | Fusion | `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS` |
-| AI assist | `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS` |
+| AI assist | `ASSIST_MODE` (simulated\|live, default simulated), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS` |
 | Profiles | `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS` |
 | Email | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; `SMTP_PASSWORD` accepted), `SMTP_FROM` (`SMTP_FROM_ADDRESS` accepted), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL` |
 | Container | `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS` |
@@ -117,7 +117,7 @@ Without SMTP, every email (invitations, *results are ready*, the developer brief
 
 ```bash
 npm install
-npm start          # http://localhost:3000, demo mode, data in ./data, 5 fictional profiles seeded
+npm start          # http://localhost:3000; demo without CX_API_KEY (5 fictional profiles seeded), real scans with it
 npm test           # 42 tests, including the whole live flow against a Checkmarx One stand-in (test/helpers/mock-cxone.mjs)
 ```
 

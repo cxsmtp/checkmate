@@ -2,6 +2,10 @@ import { THEMES, applyTheme, nearestCity, cityFromTimeZone, paintSkylines, setPh
 
 const app = document.getElementById('app');
 
+const LOOK_KEY = 'checkmate-look';
+const readLook = () => { try { return localStorage.getItem(LOOK_KEY); } catch { return null; } };
+const storeLook = (v) => { try { localStorage.setItem(LOOK_KEY, v); } catch {} };
+
 // Build DOM safely: every string goes in via textContent, never innerHTML.
 function h(tag, attrs = {}, ...children) {
   const el = document.createElement(tag);
@@ -45,8 +49,8 @@ const siteReady = api('/api/config').then((c) => { site = c; applyBranding(c); s
 function applyBranding(c) {
   const b = c.branding ?? {};
   const root = document.documentElement;
-  root.dataset.theme = b.theme || 'dark';
-  root.dataset.accent = b.accent || 'city';
+  root.dataset.theme = readLook() || b.theme || 'auto';
+  root.dataset.accent = b.accent || 'ink';
   if (b.accentColor) root.style.setProperty('--brand-accent', b.accentColor), root.setAttribute('data-brand-accent', '');
   document.title = `${b.appName || 'Checkmate'} · ${b.event?.name || ''}`.replace(/ · $/, '');
   document.getElementById('brand-name').textContent = b.appName || 'Checkmate';
@@ -55,6 +59,12 @@ function applyBranding(c) {
   if (b.logoUrl) mark.replaceWith(h('img', { id: 'brand-mark', src: b.logoUrl, alt: b.companyName || b.appName, style: `max-height:${Math.min(40, b.logoHeight || 32)}px` }));
   else mark.classList.toggle('off', !c.connected);
   document.getElementById('version').textContent = `v${c.version}`;
+  document.getElementById('theme-btn').onclick = () => {
+    const order = ['auto', 'light', 'dark'];
+    const next = order[(order.indexOf(root.dataset.theme) + 1) % order.length];
+    root.dataset.theme = next; storeLook(next);
+    document.getElementById('theme-btn').title = `Look: ${next === 'auto' ? "the device's" : next}`;
+  };
   document.getElementById('footer-left').textContent = b.footer || [b.event?.name, b.event?.venue, b.companyName].filter(Boolean).join(' · ');
   const tenant = document.getElementById('tenant-chip');
   tenant.hidden = false;
@@ -65,10 +75,42 @@ function applyBranding(c) {
 function setStep(step) {
   const order = ['who', 'repo', 'profile', 'scan', 'outcome'];
   const at = order.indexOf(step);
-  document.querySelectorAll('#steps li').forEach((li) => {
-    const i = order.indexOf(li.dataset.step);
-    li.className = i < at ? 'done' : i === at ? 'now' : '';
+  document.querySelectorAll('#steps [data-step]').forEach((el) => {
+    const i = order.indexOf(el.dataset.step);
+    el.className = `tab ${i < at ? 'done' : i === at ? 'now' : ''}`;
   });
+  const t = STEP_TITLES[step];
+  if (t) setTitle(...t);
+}
+const STEP_TITLES = {
+  who: ['Welcome', 'Two letters of your name or company — your invitation does the rest', 'Your visit'],
+  repo: ['You and your team', 'Check the details, pick the repository', 'Your visit'],
+  profile: ['How should we scan?', 'What your Checkmarx One tenant offers right now', 'Scan'],
+  scan: ['Scanning', 'Checkmarx One is running; Fusion follows', 'Running'],
+  outcome: ['Outcome', '', 'Outcome'],
+};
+function setTitle(title, sub = '', stage = '') {
+  document.getElementById('page-title').textContent = title;
+  document.getElementById('page-sub').textContent = sub;
+  const chip = document.getElementById('page-stage');
+  chip.textContent = stage; chip.hidden = !stage;
+}
+/** The Team button in the title bar: the team panel in a dialog, so no page has to carry it. */
+function setTeam(s, id, key) {
+  const btn = document.getElementById('team-btn');
+  if (!s?.customer?.email) { btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.replaceChildren(...[...btn.childNodes].filter((n) => n.nodeName.toLowerCase() === 'svg'), h('span', {}, 'Team'), h('span', { class: 'count' }, (s.team?.length ?? 0) + 1));
+  btn.onclick = () => openDialog('Your team', teamPanel(s, id, key));
+}
+function openDialog(title, body) {
+  document.querySelector('.dialog-back')?.remove();
+  const close = () => back.remove();
+  const back = h('div', { class: 'dialog-back', onclick: (e) => e.target === back && close() },
+    h('div', { class: 'dialog', role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
+      h('header', {}, h('h2', {}, title), h('button', { type: 'button', 'aria-label': 'Close', onclick: close }, '×')), body));
+  document.addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', esc); } });
+  document.body.append(back);
 }
 
 // ---------------------------------------------------------------------------
@@ -85,7 +127,7 @@ function setCity(key, { remember = true } = {}) {
   const theme = applyTheme(city);
   const chip = document.getElementById('city-chip');
   chip.hidden = false;
-  chip.querySelector('span').textContent = city ? `📍 ${theme.name}` : '📍 Choose your city';
+  chip.querySelector('span').textContent = city ? theme.name : 'Choose your city';
   chip.onclick = () => askForCity();
   document.querySelectorAll('[data-city-name]').forEach((el) => { el.textContent = city ? theme.name : 'Your city'; });
   document.querySelectorAll('[data-city-greeting]').forEach((el) => { el.textContent = city ? theme.greeting : 'Welcome'; });
@@ -164,13 +206,14 @@ function samplesPanel(onPick) {
   return h('div', { class: 'panel tight' },
     h('div', { class: 'spread' }, h('h4', {}, 'No repository with you?'), h('span', { class: 'muted', style: 'font-size:12px' }, 'Watch Fusion on one of ours')),
     h('div', { class: 'samples', style: 'margin-top:10px' }, site.samples.map((s) =>
-      h('button', { type: 'button', class: 'sample', onclick: () => onPick(s) },
-        h('b', {}, s.name), h('span', { class: 'arrow' }, '→'), h('small', {}, s.description), s.hasResults ? h('span', { class: 'tag ok' }, '⚡ Instant results') : h('span', { class: 'tag' }, s.language)))));
+      h('button', { type: 'button', class: 'sample', title: s.description, onclick: () => onPick(s) },
+        h('b', {}, s.name), s.hasResults ? h('span', { class: 'tag ok' }, '⚡ Instant') : h('span', { class: 'tag' }, s.language), h('span', { class: 'arrow' }, '→')))));
 }
 
 async function renderWelcome() {
   await siteReady;
   setStep('who');
+  setTeam(null);
   const start = initialCity();
   setCity(start.key, { remember: false });
 
@@ -246,7 +289,7 @@ function renderDetails() {
   const teamBox = h('div', { class: 'people' });
   const renderTeam = () => teamBox.replaceChildren(...team.map((t, i) =>
     h('span', { class: 'person' }, h('span', { class: 'avatar' }, initialsOf(t.name || t.email)), h('span', {}, t.name || t.email, t.name ? h('small', {}, ` · ${t.email}`) : null), h('button', { type: 'button', 'aria-label': `Remove ${t.name || t.email}`, onclick: () => { team.splice(i, 1); renderTeam(); } }, '×'))),
-    team.length < 2 ? h('span', { class: 'muted', style: 'font-size:13px;align-self:center' }, `Add at least ${2 - team.length} more colleague${team.length === 1 ? '' : 's'} who should see the outcome.`) : null);
+    ...(team.length < 2 ? [h('span', { class: 'muted', style: 'font-size:13px;align-self:center' }, `Add at least ${2 - team.length} more colleague${team.length === 1 ? '' : 's'} who should see the outcome.`)] : []));
   renderTeam();
   const addName = h('input', { placeholder: 'Colleague name', 'aria-label': 'Colleague name' });
   const addEmail = h('input', { placeholder: 'name@company.com', type: 'email', 'aria-label': 'Colleague email' });
@@ -266,7 +309,8 @@ function renderDetails() {
   renderChips();
   repoInput.addEventListener('input', () => { if (repoInput.value) draft.sampleId = null; renderChips(); });
 
-  const form = h('form', { class: 'stack', novalidate: true });
+  setTeam(null);
+  const form = h('form', { class: 'details', novalidate: true });
   form.append(
     h('div', { class: 'panel' },
       h('div', { class: 'form-head' }, h('span', { class: 'avatar' }, initialsOf(draft.name)), h('div', {}, h('h2', {}, draft.profileId ? `Welcome back, ${draft.name.split(' ')[0]}` : 'Tell us who you are'), h('p', {}, draft.profileId ? 'We have most of this already — check it and add your repository.' : 'Three lines, and your team\'s addresses if you have them.'))),
@@ -285,7 +329,7 @@ function renderDetails() {
       h('label', { class: 'check', style: 'margin-top:12px' }, h('input', { type: 'checkbox', name: 'consent' }), 'I\'m authorised to have this repository scanned by Checkmarx One.'),
       h('p', { class: 'error', 'data-error': 'consent' }),
       h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inviteNow', checked: true }), 'Email my team the outcome link now.')),
-    h('div', { class: 'row' }, h('button', { type: 'submit', class: 'golden big' }, 'Choose how to scan →'), h('button', { type: 'button', class: 'ghost', onclick: () => renderWelcome() }, 'Back'), errBox));
+    h('div', { class: 'row actions' }, h('button', { type: 'submit', class: 'golden big' }, 'Choose how to scan →'), h('button', { type: 'button', class: 'ghost', onclick: () => renderWelcome() }, 'Back'), errBox));
 
   const techFields = form.querySelector('#tech-fields');
   const syncSame = () => { techFields.hidden = sameAsMe.firstChild.checked; };
@@ -330,9 +374,9 @@ function renderDetails() {
     }
   });
 
-  app.replaceChildren(h('div', { class: 'split' }, form, h('div', { class: 'summary-side' }, postcard(), tenantPanel())));
+  app.replaceChildren(form);
   paintSkylines(); paintPhotos();
-  window.scrollTo({ top: 0 });
+  app.scrollTo({ top: 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -340,7 +384,7 @@ function renderDetails() {
 // ---------------------------------------------------------------------------
 let pollTimer = null;
 let current = null;
-const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '' };
+const ui = { scanner: 'all', severities: new Set(), fusionOnly: false, search: '', selected: null, tab: null, assistScope: 'fusion', assistMsg: '', otab: 'overview' };
 
 async function renderSession(id, key, { reload = true } = {}) {
   clearTimeout(pollTimer);
@@ -352,6 +396,7 @@ async function renderSession(id, key, { reload = true } = {}) {
   const s = current;
   if (document.documentElement.dataset.cityFor !== s.id) { setCity(s.theme ?? initialCity().key, { remember: false }); document.documentElement.dataset.cityFor = s.id; }
   const rerender = () => renderSession(id, key, { reload: false });
+  setTeam(s, id, key);
   const typed = [...document.querySelectorAll('#invite-form input')].map((i) => i.value);
   const activeName = document.activeElement?.name;
 
@@ -389,23 +434,22 @@ function renderProfile(s, id, key) {
     catch (e) { run.disabled = false; msg.textContent = e.message; }
   } }, 'Run the scan with Fusion →');
 
+  setTitle(`How should we scan ${s.repo.owner}/${s.repo.repo}?`, o.source === 'tenant' ? `Fetched from your Checkmarx One tenant · ${o.region}` : o.source === 'demo' ? 'Demo tenant: the options a tenant typically offers' : 'Tenant defaults', 'Scan');
   return h('div', { class: 'profile-grid' },
-    h('div', { class: 'stack' },
-      h('div', { class: 'panel' },
-        h('span', { class: 'eyebrow' }, o.source === 'tenant' ? `Fetched from your Checkmarx One tenant · ${o.region}` : o.source === 'demo' ? 'Demo tenant' : 'Tenant defaults'),
-        h('h2', {}, `How should we scan ${s.repo.owner}/${s.repo.repo}?`),
-        h('p', { class: 'hint' }, 'These are the engines and models your tenant offers right now. The defaults are what we recommend for a first look.'),
-        o.warning ? h('p', { class: 'error' }, `Could not read the tenant: ${o.warning}. Showing defaults.`) : null,
-        h('h4', {}, 'Engines'), engineBox),
-      h('div', { class: 'panel fusion-card' },
-        h('div', { class: 'spread' }, h('div', {}, h('span', { class: 'tag fusion' }, '✦ Fusion'), h('h3', {}, 'Reason about the whole application'), h('p', { class: 'hint' }, 'Fusion reads how code, services and cloud resources connect, finds what rules cannot describe, and rescores every finding by its real exploitable path.')), fusionSwitch),
-        h('h4', { style: 'margin-top:10px' }, 'Model'), modelSeg,
-        presetSel ? h('label', { class: 'field', style: 'margin-top:14px' }, h('span', {}, 'SAST preset'), presetSel) : null),
-      h('div', { class: 'row' }, run, h('span', { class: 'muted', style: 'font-size:13px' }, 'Usually 3–10 minutes. You can invite your team while it runs.'), msg)),
-    h('div', { class: 'summary-side' },
-      h('div', { class: 'panel tight' }, h('h4', {}, 'What will be sent'), preview),
-      h('div', { class: 'panel tight' }, h('h4', {}, 'Repository'), h('p', { class: 'mono', style: 'font-size:13px;word-break:break-all;margin:0' }, s.repo.url), h('p', { class: 'muted', style: 'font-size:12.5px;margin:4px 0 0' }, `Branch ${s.branch || 'default'} · for ${s.customer.company || s.customer.name}`)),
-      teamPanel(s, id, key)));
+    h('div', { class: 'panel' },
+      h('h4', {}, 'Engines'), h('p', { class: 'hint' }, 'What your tenant licenses. The defaults are what we recommend for a first look.'),
+      o.warning ? h('p', { class: 'error' }, `Could not read the tenant: ${o.warning}. Showing defaults.`) : null,
+      engineBox,
+      presetSel ? h('label', { class: 'field', style: 'margin-top:14px' }, h('span', {}, 'SAST preset'), presetSel) : null,
+      h('div', { class: 'repo-line' }, h('h4', {}, 'Repository'), h('p', { class: 'mono' }, s.repo.url), h('p', { class: 'muted' }, `Branch ${s.branch || 'default'} · for ${s.customer.company || s.customer.name}`))),
+    h('div', { class: 'panel fusion-card' },
+      h('div', { class: 'spread' }, h('span', { class: 'tag fusion' }, '✦ Fusion'), fusionSwitch),
+      h('h3', {}, 'Reason about the whole application'),
+      h('p', { class: 'hint' }, 'Fusion reads how code, services and cloud resources connect, finds what rules cannot describe, and rescores every finding by its real exploitable path.'),
+      h('h4', { style: 'margin-top:6px' }, 'Model'), modelSeg),
+    h('div', { class: 'panel go' },
+      h('h4', {}, 'What will be sent'), preview,
+      h('div', { class: 'stack', style: 'margin-top:auto;gap:8px' }, run, h('span', { class: 'muted', style: 'font-size:12.5px' }, 'Usually 3–10 minutes. Invite your team (title bar) while it runs.'), msg)));
 }
 
 // --- 4. The theatre ------------------------------------------------------------
@@ -416,6 +460,7 @@ function theatre(s, id, key) {
   const stageWords = { queued: 'Queued on Checkmarx One', 'creating-project': 'Creating the project and application', 'starting-scan': 'Starting the scan', scanning: 'Engines are running', correlating: 'Fusion is correlating across the application', 'fetching-results': 'Collecting results', explaining: 'Writing the outcome' };
   const fs = s.fusionStage;
   const pct = s.stage === 'correlating' ? (fs?.stage ?? 5) : ['fetching-results', 'explaining'].includes(s.stage) ? 100 : 0;
+  setTitle(`Scanning ${s.repo.owner}/${s.repo.repo}`, stageWords[s.stage] ?? s.stage, 'Running');
   const r = 50, c = 2 * Math.PI * r;
   const ring = svg('svg', { class: 'ring', viewBox: '0 0 120 120' },
     svg('circle', { class: 'track', cx: 60, cy: 60, r }),
@@ -429,7 +474,7 @@ function theatre(s, id, key) {
       s.profile?.fusion ? h('div', { class: 'panel fusion-card' },
         h('div', { class: 'fusion-live' }, ring, h('div', {}, h('span', { class: 'tag fusion' }, '✦ Fusion correlation'), h('h3', {}, fs?.description || (s.stage === 'correlating' ? 'Starting…' : 'Waits for the engines to finish')), h('p', { class: 'narrative' }, 'Fusion maps the application\'s microservices and cloud resources, then follows each finding to see whether an attacker can really reach it. Scores go ', h('b', {}, 'up'), ' for exploitable paths and ', h('b', {}, 'down'), ' for dead ends — so the list you get is the one worth your time.')))) : null,
       h('div', { class: 'panel tight' }, h('h4', {}, 'This scan'), h('div', { class: 'scan-facts' }, (s.profile?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), s.profile?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${s.profile.llmModel || 'default model'}`) : null, s.profile?.presetName ? h('span', { class: 'tag' }, s.profile.presetName) : null))),
-    h('div', { class: 'summary-side' }, postcard(), teamPanel(s, id, key)));
+    h('div', { class: 'summary-side' }, postcard(), h('div', { class: 'panel tight' }, h('h4', {}, 'While you wait'), h('p', { class: 'hint', style: 'margin:0' }, 'Invite the people who should see the outcome: Team, in the title bar. They get a private link to this page.'))));
 }
 
 // --- 5. The outcome ------------------------------------------------------------
@@ -449,28 +494,46 @@ function outcomeView(s, id, key, rerender) {
   const all = [...s.fusionOnly, ...s.others];
   const corr = all.filter((f) => f.correlation).sort((a, b) => Math.abs(b.correlation.newRisk - b.correlation.oldRisk) - Math.abs(a.correlation.newRisk - a.correlation.oldRisk));
   const map = s.fusionMap;
-  return h('div', { class: 'stack' },
-    s.reusedFrom ? h('p', { class: 'hint' }, `Showing the most recent scan of this sample repository (completed ${fmtDate(s.reusedFrom.completedAt)}).`) : null,
+  const go = (t) => { ui.otab = t; rerender(); app.scrollTo({ top: 0 }); };
+  setTitle(`${s.repo.owner}/${s.repo.repo}`, `${fmtDate(s.completedAt)}${s.reusedFrom ? ' · the most recent scan of this sample repository' : ''}`, 'Outcome');
+  const a = s.assist ?? {};
+  const busy = a.triage?.status === 'running' || a.remediation?.status === 'running';
+  const fixes = Object.values(a.remediation?.items ?? {}).filter((i) => i.status === 'done').length;
+  const tabs = [
+    ['overview', 'Overview'],
+    s.assistEnabled !== false ? ['loop', busy ? '✦ Close the loop · running' : fixes ? `✦ Close the loop · ${fixes} fixed` : '✦ Close the loop'] : null,
+    corr.length || map ? ['fusion', 'What Fusion saw'] : null,
+    ['results', 'All results', all.length],
+  ].filter(Boolean);
+  const tab = tabs.some(([k]) => k === ui.otab) ? ui.otab : 'overview';
+  const nav = h('nav', { class: 'ptabs', 'aria-label': 'Outcome' }, tabs.map(([k, l, n]) =>
+    h('button', { type: 'button', class: `ptab ${k === tab ? 'active' : ''} ${k === 'loop' ? 'gold' : ''}`, onclick: () => go(k) }, l, n != null ? h('span', { class: 'count' }, n) : null)));
+
+  let body;
+  if (tab === 'overview') body = h('div', { class: 'overview' },
     h('section', { class: 'panel outcome-hero' },
       dial(o.exposure?.score ?? 0, o.exposure?.band ?? 'Low'),
       h('div', {},
-        h('span', { class: 'eyebrow' }, `Outcome · ${s.repo.owner}/${s.repo.repo} · ${fmtDate(s.completedAt)}`),
         h('h1', {}, o.headline),
         h('p', { class: 'verdict' }, o.verdict),
-        h('div', { class: 'scan-facts' }, (o.scanned?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null))),
+        h('div', { class: 'scan-facts' }, (o.scanned?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
+        h('div', { class: 'row', style: 'margin-top:14px' },
+          s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => go('loop') }, '✦ Triage and fix with AI →') : null,
+          h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`)))),
     h('div', { class: 'tiles' },
-      h('button', { type: 'button', class: 'tile fusion', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; rerender(); document.querySelector('.cx-tabs')?.scrollIntoView({ behavior: 'smooth' }); } }, h('b', {}, c.fusionOnly ?? 0), h('span', {}, 'found only by Fusion')),
+      h('button', { type: 'button', class: 'tile fusion', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, h('b', {}, c.fusionOnly ?? 0), h('span', {}, 'found only by Fusion')),
       h('div', { class: 'tile' }, h('b', {}, c.total ?? 0), h('span', {}, 'total findings')),
-      ...['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => h('div', { class: `tile sev-${sev.toLowerCase()}` }, h('b', {}, c.bySeverity?.[sev] ?? 0), h('span', {}, sev.toLowerCase()))),
+      ...['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => h('button', { type: 'button', class: `tile sev-${sev.toLowerCase()}`, onclick: () => { ui.severities = new Set([sev]); ui.fusionOnly = false; ui.scanner = 'all'; go('results'); } }, h('b', {}, c.bySeverity?.[sev] ?? 0), h('span', {}, sev.toLowerCase()))),
       h('div', { class: 'tile' }, h('b', {}, c.confirmedByFusion ?? 0), h('span', {}, 'confirmed by both'))),
-    s.assistEnabled !== false ? loopPanel(s, id, key, rerender) : null,
     h('div', { class: 'grid two' },
-      h('div', { class: 'panel' }, h('h4', {}, 'Where rule-based scanning was blind'), o.blindSpots?.length ? h('div', { class: 'blind' }, o.blindSpots.map((t) => h('div', { class: 'blind-row' }, h('span', {}, h('b', {}, t.label), h('span', { class: 'muted' }, ` · worst ${titleCase(t.worst)}`)), h('span', { class: 'tag accent' }, `${t.fusionOnly} Fusion-only`), h('span', { class: 'bar' }, h('i', { style: `width:${Math.round((t.fusionOnly / Math.max(1, c.fusionOnly)) * 100)}%` }))))) : h('p', { class: 'muted' }, 'Nothing Fusion-only on this scan: the rules covered it.')),
-      h('div', { class: 'panel' }, h('h4', {}, 'First moves'), h('ol', { class: 'moves' }, (o.firstMoves ?? []).map((m) => h('li', {}, m))))),
-    corr.length || map ? h('div', { class: 'grid two' },
-      h('div', { class: 'panel' }, h('h4', {}, 'What Fusion re-scored, and why'), corr.length ? h('div', { class: 'corr' }, corr.slice(0, 6).map((f) => h('button', { type: 'button', class: 'corr-row', style: 'text-align:left;min-height:0;cursor:pointer', onclick: () => { ui.selected = f.id; ui.tab = 'fusion'; rerender(); document.querySelector('.drawer')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.explanation?.plainTitle || f.title), h('small', {}, f.correlation.reason))))) : h('p', { class: 'muted' }, o.correlation?.error || 'No risk-score changes for this scan.')),
-      map ? h('div', { class: 'panel' }, h('h4', {}, 'The application Fusion mapped'), h('p', { class: 'hint' }, `${map.summary?.microservices?.count ?? map.microservices?.length ?? 0} services · ${map.summary?.cloudResources?.count ?? map.resources?.length ?? 0} cloud resources · ${map.summary?.cloudResources?.access?.Public ?? 0} public`), h('div', { class: 'map' }, (map.resources ?? []).slice(0, 8).map((r) => h('div', { class: `res ${String(r.access).toLowerCase()}` }, h('b', {}, r.name), h('small', {}, r.type), h('span', { class: `tag ${String(r.access).toLowerCase() === 'public' ? 'bad' : ''}` }, r.access || 'Private'))))) : null) : null,
-    resultsView(s, id, key, rerender));
+      h('div', { class: 'panel' }, h('h4', {}, 'Where rule-based scanning was blind'), o.blindSpots?.length ? h('div', { class: 'blind' }, o.blindSpots.slice(0, 4).map((t) => h('div', { class: 'blind-row' }, h('span', {}, h('b', {}, t.label), h('span', { class: 'muted' }, ` · worst ${titleCase(t.worst)}`)), h('span', { class: 'tag accent' }, `${t.fusionOnly} Fusion-only`), h('span', { class: 'bar' }, h('i', { style: `width:${Math.round((t.fusionOnly / Math.max(1, c.fusionOnly)) * 100)}%` }))))) : h('p', { class: 'muted' }, 'Nothing Fusion-only on this scan: the rules covered it.')),
+      h('div', { class: 'panel' }, h('h4', {}, 'First moves'), h('ol', { class: 'moves' }, (o.firstMoves ?? []).slice(0, 5).map((m) => h('li', {}, m))))));
+  else if (tab === 'loop') body = loopPanel(s, id, key, rerender);
+  else if (tab === 'fusion') body = h('div', { class: 'grid two' },
+    h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'What Fusion re-scored, and why'), corr.length ? h('div', { class: 'corr' }, corr.map((f) => h('button', { type: 'button', class: 'corr-row', style: 'text-align:left;min-height:0;cursor:pointer', onclick: () => { ui.selected = f.id; ui.tab = 'fusion'; ui.fusionOnly = false; ui.severities = new Set(); go('results'); } }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.explanation?.plainTitle || f.title), h('small', {}, f.correlation.reason))))) : h('p', { class: 'muted' }, o.correlation?.error || 'No risk-score changes for this scan.')),
+    map ? h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'The application Fusion mapped'), h('p', { class: 'hint' }, `${map.summary?.microservices?.count ?? map.microservices?.length ?? 0} services · ${map.summary?.cloudResources?.count ?? map.resources?.length ?? 0} cloud resources · ${map.summary?.cloudResources?.access?.Public ?? 0} public`), h('div', { class: 'map' }, (map.resources ?? []).map((r) => h('div', { class: `res ${String(r.access).toLowerCase()}` }, h('b', {}, r.name), h('small', {}, r.type), h('span', { class: `tag ${String(r.access).toLowerCase() === 'public' ? 'bad' : ''}` }, r.access || 'Private')))), (map.microservices ?? []).length ? h('div', { class: 'scan-facts', style: 'margin-top:12px' }, map.microservices.map((m) => h('span', { class: 'tag' }, m.name))) : null) : null);
+  else body = resultsView(s, id, key, rerender);
+  return h('div', { class: `outcome tab-${tab}` }, nav, body);
 }
 
 
@@ -519,7 +582,7 @@ function loopPanel(s, id, key, rerender) {
   return h('section', { class: 'panel loop' },
     h('div', { class: 'spread', style: 'align-items:flex-start' },
       h('div', {}, h('span', { class: 'eyebrow' }, 'Close the loop'), h('h2', {}, 'Found. Triaged. Fixed.'), h('p', { class: 'hint', style: 'max-width:70ch' }, 'Finding new classes of issues is half the story. Checkmarx One AI triages every finding for real exploitability and writes the fix — the same tenant, one click each, no tickets in between.')),
-      h('span', { class: 'tag fusion' }, s.mode === 'demo' ? 'Checkmarx One AI · demo' : 'Checkmarx One AI')),
+      h('span', { class: `tag ${s.assistSimulated ? '' : 'fusion'}` }, s.assistSimulated ? 'Checkmarx One AI · simulation' : 'Checkmarx One AI')),
     h('div', { class: 'loop-strip' },
       stage('Found', `${c0(s)}`, `${s.summary?.fusionOnly ?? 0} only by Fusion · ${s.summary?.total ?? 0} in all`, 'done'),
       h('span', { class: 'loop-arrow' }, '→'),
@@ -561,8 +624,7 @@ function resultsView(s, id, key, rerender) {
       h('aside', { class: 'filters' },
         h('div', { class: 'filter-group' }, h('input', { type: 'search', placeholder: 'Search vulnerabilities', value: ui.search, 'aria-label': 'Search', oninput: (e) => { ui.search = e.target.value; clearTimeout(ui.t); ui.t = setTimeout(() => { rerender(); document.querySelector('.filters input[type=search]')?.focus(); }, 250); } })),
         h('div', { class: 'filter-group' }, h('h4', {}, 'Severity'), SEVERITIES.map((sev) => { const n = findings.filter((f) => f.severity === sev).length; return n ? h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.severities.has(sev), onchange: (e) => { e.target.checked ? ui.severities.add(sev) : ui.severities.delete(sev); rerender(); } }), h('span', { class: `sev ${sev.toLowerCase()}` }, h('i'), titleCase(sev)), h('span', { class: 'count' }, n)) : null; })),
-        h('div', { class: 'filter-group' }, h('h4', {}, 'Detection'), h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.fusionOnly, onchange: (e) => { ui.fusionOnly = e.target.checked; rerender(); } }), 'Found only by Fusion', h('span', { class: 'count' }, s.summary.fusionOnly)), h('p', { class: 'filter-note' }, `${s.summary.confirmedByFusion ?? 0} rule-based finding(s) also confirmed by Fusion.`)),
-        teamPanel(s, id, key)),
+        h('div', { class: 'filter-group' }, h('h4', {}, 'Detection'), h('label', { class: 'filter-check' }, h('input', { type: 'checkbox', checked: ui.fusionOnly, onchange: (e) => { ui.fusionOnly = e.target.checked; rerender(); } }), 'Found only by Fusion', h('span', { class: 'count' }, s.summary.fusionOnly)), h('p', { class: 'filter-note' }, `${s.summary.confirmedByFusion ?? 0} rule-based finding(s) also confirmed by Fusion.`))),
       h('div', { class: 'table-wrap' }, h('table', { class: 'cx' },
         h('thead', {}, h('tr', {}, ['Severity', 'Vulnerability', 'Scanner', 'Language', 'Location', 'Risk', 'AI', 'State'].map((t) => h('th', { scope: 'col' }, t)))),
         h('tbody', {}, list.length ? list.map((f) => row(f, rerender, s)) : h('tr', {}, h('td', { colspan: 8, class: 'empty' }, 'No results match these filters.'))))),

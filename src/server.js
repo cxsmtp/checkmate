@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
-import { config, publicSettings, publicBranding, saveSettings } from './config.js';
+import { config, publicSettings, publicBranding, saveSettings, isLive, assistLive } from './config.js';
 import * as store from './store.js';
 import * as samples from './samples.js';
 import * as profiles from './profiles.js';
@@ -128,9 +128,10 @@ function publicView(s, { admin = false } = {}) {
   return {
     ...rest,
     cx: admin ? { ...cx, url: cx?.projectId && !cx.demo ? scanUiUrl(cx.projectId, cx.scanId) : undefined } : scan,
-    mode: config.mode,
+    mode: isLive() ? 'live' : 'demo',
     eventName: config.event.name,
     assistEnabled: config.assist.enabled,
+    assistSimulated: !assistLive(),
     assistScopes: s.stage === 'complete' ? assist.scopeCounts(s) : undefined,
   };
 }
@@ -179,7 +180,7 @@ app.get('/api/health', (req, res) => res.json({ ok: true, version: config.versio
 app.get('/api/config', (req, res) =>
   res.json({
     eventName: config.event.name,
-    mode: config.mode,
+    mode: isLive() ? 'live' : 'demo',
     version: config.version,
     samples: samples.publicList(),
     defaultCity: config.defaultCity,
@@ -188,7 +189,7 @@ app.get('/api/config', (req, res) =>
     cityPhotos: cities.publicList(),
     profilesLookup: config.profiles.lookup,
     profilesMinChars: config.profiles.minChars,
-    connected: Boolean(config.connection) || config.mode === 'demo',
+    connected: Boolean(config.connection) || !isLive(),
     tenantRegion: config.connection?.regionLabel ?? '',
   }),
 );
@@ -402,8 +403,8 @@ admin.post('/settings/import-env', wrap(async (req, res) => {
   if (result.errors) return res.status(400).json({ error: `Some values are not valid: ${Object.entries(result.errors).map(([k, v]) => `${k}: ${v}`).join('; ')}`, errors: result.errors, applied, ignored });
   audit({ type: 'settings', outcome: 'changed', reason: `Settings imported from a .env file: ${applied.join(', ')}`, details: { applied, ignored, secrets: applied.filter(isSecretVariable) } });
   const check = { cxone: null, smtp: null };
-  if (config.checkmarx.apiKey && config.mode === 'live') check.cxone = await testConnection().then((r) => ({ ok: true, ...r })).catch((e) => ({ ok: false, error: e.message }));
-  else if (config.checkmarx.apiKey) check.cxone = config.connection ? { ok: true, tenant: config.connection.tenant, region: config.connection.regionLabel, note: 'Key accepted; switch Mode to live to use it.' } : { ok: false, error: config.connectionError };
+  if (config.checkmarx.apiKey && config.connection) check.cxone = await testConnection().then((r) => ({ ok: true, ...r })).catch((e) => ({ ok: false, error: e.message }));
+  else if (config.checkmarx.apiKey) check.cxone = config.connection ? { ok: true, tenant: config.connection.tenant, region: config.connection.regionLabel, note: isLive() ? '' : 'Key accepted; Mode is set to demo.' } : { ok: false, error: config.connectionError };
   if (config.smtp.host) check.smtp = await verifySmtp().then(() => ({ ok: true })).catch((e) => ({ ok: false, error: e.message }));
   res.json({ applied, ignored, check, settings: publicSettings() });
 }));
@@ -615,7 +616,7 @@ export function start() {
   fs.mkdirSync(config.dataDir, { recursive: true });
   auth.ensureAdmin();
   samples.list();
-  if (config.mode === 'demo') {
+  if (!isLive()) {
     const n = profiles.seedDemo();
     if (n) console.log(`Demo mode: ${n} fictional profiles added so the type-ahead can be rehearsed (admin → Profiles).`);
   }
@@ -624,8 +625,8 @@ export function start() {
   if (config.cities.autoFetch) cities.autoFetch();
 
   const server = app.listen(config.port, config.host, () => {
-    console.log(`${config.branding.appName} v${config.version} running on http://${config.host}:${config.port} (mode: ${config.mode}${supervised ? ', launcher' : ''})`);
-    if (config.mode === 'live' && !config.connection) console.log(`Checkmarx One is not connected: ${config.connectionError || 'paste the API key under /admin → Settings, or upload a .env file.'}`);
+    console.log(`${config.branding.appName} v${config.version} running on http://${config.host}:${config.port} (mode: ${isLive() ? 'live' : 'demo'}${config.mode === 'auto' ? ' (automatic)' : ''}${supervised ? ', launcher' : ''}; AI Triage & Remediation: ${assistLive() ? 'live' : 'simulated'})`);
+    if (config.mode !== 'demo' && !config.connection) console.log(`Checkmarx One is not connected: ${config.connectionError || 'paste the API key under /admin → Settings, or upload a .env file.'}`);
     if (config.connection) console.log(`Checkmarx One: tenant ${config.connection.tenant} (${config.connection.regionLabel}).`);
     if (!config.smtp.host) console.log(`SMTP not configured: emails are written to ${config.dataDir}/outbox.`);
     process.send?.({ type: 'ready' });
