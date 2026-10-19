@@ -80,6 +80,22 @@ This document states everything Checkmate is required to do, in enough detail to
 7a.6. **Credits**: 1 per finding triaged, 3 per finding remediated, plus the Fusion scan (whole 10K-line units of the scanned lines × credits per 10K LOC, when set); lines from `GET /api/sast-metadata/{scanId}`. Priced (and subtracted, with the return multiple) only when a credit price is set.
 7a.7. Scope **✦ Fusion gaps** (default) or **Everything found**; scale **This repository / × 10 / × 50 / × 250 repositories like this one**. *How it is worked out* lists every assumption with its value. Every number is editable under Admin → Settings → Business impact.
 
+### 7b. The executive journey (one screen per step, no scrolling)
+
+7b.1. Positioning: Checkmarx One as the platform that finds, proves and fixes — not a point scanner. Landing: *Find the risks that matter. Fix them before they ship.*, the one name/company field, sample repositories as one-click chips, and a four-step journey (Find · Prove · Fix · Measure) beside the city postcard. No list of scanners.
+7b.2. One details screen: the visitor (a card when the invitation knows them; four fields otherwise), the technical owner, the team (at least two), the repository (theirs, one scanned with them before, or a sample with results ready), the Fusion model from the tenant (`GET /api/scan-options`), consent, and **Find and fix →**. The scan starts at once (`POST /api/sessions` with `scan: {fusion, llmModel}`); the separate scan-profile step remains only for sessions created without a choice.
+7b.3. Scans run SAST and SCA with Fusion by default (`CX_ENGINES=sast,sca`); other engines are off until switched on in Admin → Settings → Scan defaults.
+7b.4. Outcome: a fix-first headline (*N risks that rule-based scanning could not see — M critical or high. Every one can be triaged and fixed with AI today.*), one **Fix with AI** button (AI Triage then AI Remediation on what is real: `POST /api/sessions/:id/assist/fix`), and the story strip *Found only by Fusion → Proven exploitable → Fixed by AI → Saved*. AI Triage and Remediation take no action on the platform unless switched to Live in Admin; their value is shown on the page.
+7b.5. Scans are real whenever the API key is set (`CX_MODE=auto`; `demo` from an older .env reads as auto).
+7b.6. Sample repositories are scanned as soon as they are added (and when the tenant connects), so their results are ready the moment a visitor picks one; refreshed in the background after `SAMPLE_REUSE_HOURS` (168), one scan per sample at a time (`SAMPLES_AUTO_SCAN`).
+7b.7. Every Fusion-only finding carries, written at scan time: *Why the deterministic engines did not report it* (by kind of weakness), *Why Checkmarx Fusion found it* (with Fusion's own words), and the evidence (which engines ran, files on the path, steps, model).
+
+### 7c. Any city in the world
+
+7c.1. The visitor's city is found from the device's position (the browser asks once; OpenStreetMap Nominatim reverse geocoding at city level, coordinates never stored), else the time zone, or typed (`GET /api/places/search`). Only the city's key, name and country are kept with a registration.
+7c.2. Photos of any city are fetched from Wikimedia Commons the first time a visitor from there arrives (`GET /api/places/:key/photos`), licensed and credited as before; the five drawn cities keep their skylines. Admins can add any city ahead of an event (Branding → City photography).
+7c.3. The business-impact currency follows the city's country (60+ currencies with regional engineering rates; US dollars where no rate is known).
+
 ## 8. Branding, theming and photography
 
 8.1. Branding settings (as CxMissionZero): app name, company name, logo (https or uploaded ≤ 300 KB data URL), icon, logo height, accent colour (hex) or palette (ink, lagoon, sage, plum, ochre, **city** = follows the visitor's city), dark / light / auto, look (command-center / classic), call to action, event name, tagline, venue, footer. A live header preview in the admin; applied to the page, the tab icon and emails.
@@ -101,7 +117,7 @@ Scan: `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYS
 Fusion: `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS`.
 AI assist: `ASSIST_MODE` simulated|live (default simulated; live only with live scans), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS`.
 Business impact: `IMPACT_ENABLED`, `IMPACT_TRIAGE_MINUTES`, `IMPACT_FIX_MINUTES`, `IMPACT_FP_PERCENT`, `IMPACT_RELEASE_MULTIPLIER`, `IMPACT_HOURLY_RATE`, `IMPACT_CURRENCY`, `IMPACT_CREDIT_PRICE`, `IMPACT_FUSION_CREDITS_PER_10K`.
-Profiles: `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`.
+Profiles & samples: `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`, `SAMPLES_AUTO_SCAN`, `SAMPLE_REUSE_HOURS` (refresh after, default 168). Brand mark: `BRAND_MARK` (shown when no icon is uploaded).
 Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; alias `SMTP_PASSWORD`), `SMTP_FROM` (alias `SMTP_FROM_ADDRESS`), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL`.
 Container: `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS`, `UPDATE_START_TIMEOUT_SECONDS`.
 

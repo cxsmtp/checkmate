@@ -42,3 +42,13 @@ test('only a known city name is kept with a registration, never anything else', 
   assert.equal(validateRegistration({ ...valid, theme: { lat: 1 } }).value.theme, null);
   assert.equal(validateRegistration(valid).value.theme, null);
 });
+
+test('places: keys for any city, and only the city is kept with a registration', async () => {
+  const { placeKey, featuredKey, isPlaceKey } = await import('../src/places.js');
+  assert.equal(placeKey('Kuala Lumpur', 'MY'), 'kuala-lumpur-my');
+  assert.equal(placeKey('São Paulo', 'br'), 'sao-paulo-br');
+  assert.equal(featuredKey('Dubai', 'AE'), 'dubai');
+  assert.equal(featuredKey('Dubai', 'US'), null);
+  assert.ok(isPlaceKey('kuala-lumpur-my'));
+  assert.ok(!isPlaceKey('../etc'));
+});

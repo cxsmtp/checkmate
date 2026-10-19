@@ -49,10 +49,13 @@ test('sample repositories: seeded, validated, reused only while fresh', () => {
   const { sample } = samples.create({ name: 'Demo', url: 'https://github.com/acme/demo.git', branch: 'main' });
   assert.equal(sample.url, 'https://github.com/acme/demo');
   assert.equal(samples.reusable(sample), null);
+  assert.equal(samples.needsScan(sample), true, 'a new sample is scanned at once');
   samples.recordScan(sample.id, 'abc', new Date().toISOString());
   assert.equal(samples.reusable(samples.get(sample.id)).sessionId, 'abc');
-  samples.recordScan(sample.id, 'old', new Date(Date.now() - 48 * 3_600_000).toISOString());
-  assert.equal(samples.reusable(samples.get(sample.id)), null, 'older than the reuse window');
+  assert.equal(samples.needsScan(samples.get(sample.id)), false, 'fresh results are ready');
+  samples.recordScan(sample.id, 'old', new Date(Date.now() - 200 * 3_600_000).toISOString());
+  assert.equal(samples.reusable(samples.get(sample.id)).sessionId, 'old', 'older results are still shown at once');
+  assert.equal(samples.needsScan(samples.get(sample.id)), true, '…while a fresh scan is started');
   // Changing the repository drops results that no longer apply.
   samples.recordScan(sample.id, 'abc', new Date().toISOString());
   samples.update(sample.id, { url: 'https://github.com/acme/other' });
@@ -106,6 +109,7 @@ test('mode: automatic follows the key; AI Triage & Remediation live only when sw
   assert.equal(assistLive(), true);
   assert.ok(saveSettings({ 'assist.mode': 'sometimes' }).errors['assist.mode']);
   saveSettings({ mode: 'demo', 'assist.mode': 'simulated' });
+  assert.equal(config.mode, 'auto', '"demo" from an older .env reads as automatic: a connected key always scans for real');
 });
 
 test('samples: a demo result is never reused for a live visitor', () => {

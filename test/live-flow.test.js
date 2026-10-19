@@ -33,7 +33,7 @@ test('live mode end to end against a Checkmarx One stand-in', { timeout: 90_000 
   const env = {
     ...process.env, DATA_DIR: dataDir, PORT: String(port), HOST: '127.0.0.1', CX_MODE: 'live', CX_API_KEY: mock.apiKey, CX_BASE_URL: mock.base, CX_IAM_URL: mock.base,
     CX_ALLOW_CUSTOM_HOST: 'true', ASSIST_MODE: 'live', CX_POLL_INTERVAL_MS: '150', FUSION_TIMEOUT_MS: '20000', ASSIST_POLL_INTERVAL_MS: '150', ASSIST_TIMEOUT_MS: '20000',
-    CITY_PHOTOS_AUTO: 'false', ADMIN_PASSWORD: 'live-flow-test-password', PUBLIC_BASE_URL: `http://127.0.0.1:${port}`, UPDATE_CHECK_MINUTES: '0',
+    CITY_PHOTOS_AUTO: 'false', ADMIN_PASSWORD: 'live-flow-test-password', PUBLIC_BASE_URL: `http://127.0.0.1:${port}`, UPDATE_CHECK_MINUTES: '0', SAMPLES_AUTO_SCAN: 'false',
   };
   const child = spawn(process.execPath, ['src/server.js'], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
@@ -84,7 +84,7 @@ test('live mode end to end against a Checkmarx One stand-in', { timeout: 90_000 
   assert.equal(done.outcome.correlation.status, 'completed');
   assert.equal(done.outcome.correlation.changed, 2);
   assert.equal(done.fusionMap.resources.length, 2);
-  assert.match(done.outcome.headline, /Fusion found 4 issues/);
+  assert.match(done.outcome.headline, /^4 risks in acme\/webshop that rule-based scanning could not see/);
   assert.equal(done.assistScopes.fusion, 4);
   assert.ok(done.assistScopes.all > done.assistScopes.fusion);
   assert.equal(done.cx.demo, undefined);

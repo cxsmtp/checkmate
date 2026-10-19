@@ -1,4 +1,4 @@
-import { THEMES, applyTheme, nearestCity, cityFromTimeZone, paintSkylines, setPhotos, paintPhotos } from './themes.js';
+import { THEMES, applyTheme, cityFromTimeZone, paintSkylines, setPhotos, addPhotos, hasPhotosFor, paintPhotos } from './themes.js';
 import { computeImpact, regionFor, formatMoney, formatCompact } from './impact.js';
 
 const app = document.getElementById('app');
@@ -56,9 +56,12 @@ function applyBranding(c) {
   document.title = `${b.appName || 'Checkmate'} · ${b.event?.name || ''}`.replace(/ · $/, '');
   document.getElementById('brand-name').textContent = b.appName || 'Checkmate';
   document.getElementById('brand-co').textContent = b.companyName || '';
+  // The brand: the uploaded icon (or the mark text) in the square, the logo (if any) in place of the name.
   const mark = document.getElementById('brand-mark');
-  if (b.logoUrl) mark.replaceWith(h('img', { id: 'brand-mark', src: b.logoUrl, alt: b.companyName || b.appName, style: `max-height:${Math.min(40, b.logoHeight || 32)}px` }));
-  else mark.classList.toggle('off', !c.connected);
+  mark.replaceChildren(b.iconUrl ? h('img', { src: b.iconUrl, alt: '' }) : (b.markText || '✦'));
+  mark.classList.toggle('has-img', Boolean(b.iconUrl));
+  mark.classList.toggle('off', !c.connected);
+  if (b.logoUrl) document.getElementById('brand-name').replaceChildren(h('img', { src: b.logoUrl, alt: b.appName || b.companyName || '', class: 'brand-logo', style: `max-height:${Math.min(40, b.logoHeight || 32)}px` }));
   document.getElementById('version').textContent = `v${c.version}`;
   document.getElementById('theme-btn').onclick = () => {
     const order = ['auto', 'light', 'dark'];
@@ -74,8 +77,8 @@ function applyBranding(c) {
 }
 
 function setStep(step) {
-  const order = ['who', 'repo', 'profile', 'scan', 'outcome'];
-  const at = order.indexOf(step);
+  const order = ['who', 'repo', 'scan', 'outcome'];
+  const at = order.indexOf(step === 'profile' ? 'repo' : step);
   document.querySelectorAll('#steps [data-step]').forEach((el) => {
     const i = order.indexOf(el.dataset.step);
     el.className = `tab ${i < at ? 'done' : i === at ? 'now' : ''}`;
@@ -115,60 +118,116 @@ function openDialog(title, body) {
 }
 
 // ---------------------------------------------------------------------------
-// City theme: asked once per device; only the city name is kept
+// Where the visitor is: any city in the world. Found from the device's position (asked once),
+// else its time zone, or typed; only the city (key, name, country) is kept — never coordinates.
 // ---------------------------------------------------------------------------
-const CITY_KEY = 'checkmate-city';
-const readCity = () => { try { return localStorage.getItem(CITY_KEY); } catch { return null; } };
-const storeCity = (v) => { try { localStorage.setItem(CITY_KEY, v); } catch {} };
-let city = null;
+const PLACE_STORE = 'checkmate-place';
+const readPlace = () => { try { const v = JSON.parse(localStorage.getItem(PLACE_STORE) || 'null'); return v && typeof v === 'object' ? v : null; } catch { return null; } };
+const storePlace = (v) => { try { localStorage.setItem(PLACE_STORE, JSON.stringify(v)); } catch {} };
+let place = null; // { key, name, country, countryCode }
+let city = null; // place.key: the theme and photo key
 
-function setCity(key, { remember = true } = {}) {
-  city = THEMES[key] ? key : null;
-  if (remember) storeCity(city ?? 'none');
-  const theme = applyTheme(city);
+const slugOf = (name, cc = '') => {
+  const base = String(name ?? '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48);
+  const c = String(cc ?? '').toLowerCase().replace(/[^a-z]/g, '').slice(0, 2);
+  return base ? (c ? `${base}-${c}` : base) : '';
+};
+const localeCountry = () => (navigator.language || '').split(/[-_]/)[1]?.toUpperCase() || '';
+const featured = (key) => (THEMES[key] ? { key, name: THEMES[key].name, country: THEMES[key].country, countryCode: THEMES[key].countryCode } : null);
+function placeFromName(name) {
+  const hit = Object.keys(THEMES).find((k) => THEMES[k].name.toLowerCase() === String(name).trim().toLowerCase() || k === name);
+  if (hit) return featured(hit);
+  const cc = localeCountry();
+  return name ? { key: slugOf(name, cc), name: String(name).trim(), country: '', countryCode: cc } : null;
+}
+function placeFromTimeZone() {
+  const known = cityFromTimeZone();
+  if (known) return featured(known);
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+  const [area, ...rest] = zone.split('/');
+  if (!rest.length || ['Etc', 'UTC'].includes(area)) return null;
+  // Older zone names some browsers still report.
+  const OLD = { Calcutta: 'Kolkata', Bombay: 'Mumbai', Saigon: 'Ho Chi Minh City', Rangoon: 'Yangon', Katmandu: 'Kathmandu', Kiev: 'Kyiv', Ulan_Bator: 'Ulaanbaatar' };
+  const last = rest.at(-1);
+  return placeFromName((OLD[last] ?? last).replace(/_/g, ' '));
+}
+const greetingOf = (p) => (p ? THEMES[p.key]?.greeting ?? `Welcome to ${p.name}` : 'Welcome');
+const landmarksOf = (p) => (p ? THEMES[p.key]?.landmarks ?? p.country ?? '' : '');
+
+const askedPhotos = new Set();
+function setPlace(p, { remember = true } = {}) {
+  place = p?.key ? p : null;
+  city = place?.key ?? null;
+  if (remember) storePlace(place ?? { none: true });
+  applyTheme(city);
   const chip = document.getElementById('city-chip');
   chip.hidden = false;
-  chip.querySelector('span').textContent = city ? theme.name : 'Choose your city';
+  chip.querySelector('span').textContent = place ? place.name : 'Choose your city';
   chip.onclick = () => askForCity();
-  document.querySelectorAll('[data-city-name]').forEach((el) => { el.textContent = city ? theme.name : 'Your city'; });
-  document.querySelectorAll('[data-city-greeting]').forEach((el) => { el.textContent = city ? theme.greeting : 'Welcome'; });
-  document.querySelectorAll('[data-city-landmarks]').forEach((el) => { el.textContent = city ? theme.landmarks : ''; });
+  document.querySelectorAll('[data-city-name]').forEach((el) => { el.textContent = place ? place.name : 'Your city'; });
+  document.querySelectorAll('[data-city-greeting]').forEach((el) => { el.textContent = greetingOf(place); });
+  document.querySelectorAll('[data-city-landmarks]').forEach((el) => { el.textContent = landmarksOf(place); });
   paintSkylines(); paintPhotos();
+  // Photos of any city: fetched the first time someone from there arrives.
+  if (place && !hasPhotosFor(place.key) && !askedPhotos.has(place.key)) {
+    askedPhotos.add(place.key);
+    api(`/api/places/${encodeURIComponent(place.key)}/photos?name=${encodeURIComponent(place.name)}`).then((list) => list?.length && addPhotos(place.key, list)).catch(() => {});
+  }
 }
-function initialCity() {
-  const stored = readCity();
-  if (stored) return { key: stored === 'none' ? null : stored, asked: true };
-  if (site.defaultCity && site.defaultCity !== 'auto') return { key: site.defaultCity, asked: false };
-  return { key: cityFromTimeZone(), asked: false };
+function initialPlace() {
+  const stored = readPlace();
+  if (stored) return { place: stored.none ? null : stored, asked: true };
+  if (site.defaultCity && site.defaultCity !== 'auto') return { place: placeFromName(site.defaultCity), asked: true };
+  return { place: placeFromTimeZone(), asked: false };
 }
+/** The city at the device's position (the browser asks once); the outcome's amounts follow it. */
+function locate(onDone = () => {}) {
+  if (!window.isSecureContext || !navigator.geolocation) { onDone(null, 'Location needs a secure (https) connection here. Please type your city.'); return; }
+  navigator.geolocation.getCurrentPosition(async ({ coords }) => {
+    try {
+      const p = await api(`/api/places/reverse?lat=${coords.latitude.toFixed(3)}&lon=${coords.longitude.toFixed(3)}`);
+      if (p?.key) { setPlace(p); redrawOutcome(); }
+      onDone(p);
+    } catch (e) { onDone(null, 'We could not name your city right now. Please type it.'); }
+  }, (err) => onDone(null, err.code === 1 ? 'No problem — type your city instead.' : 'We could not find your location. Please type your city.'), { timeout: 10000, maximumAge: 3_600_000 });
+}
+const redrawOutcome = () => { if (current?.stage === 'complete' && location.pathname.startsWith('/s/')) route(); };
+
 function askForCity() {
   document.querySelector('.city-modal')?.remove();
-  const suggested = city ?? cityFromTimeZone() ?? (site.defaultCity !== 'auto' ? site.defaultCity : null);
   const status = h('p', { class: 'city-status', role: 'status' });
   const close = () => { modal.remove(); document.getElementById('city-chip')?.focus(); };
-  // The outcome's amounts follow the city's currency: redraw it.
-  const choose = (key) => { setCity(key); close(); if (current?.stage === 'complete' && location.pathname.startsWith('/s/')) route(); };
-  const locate = h('button', { class: 'primary', type: 'button', onclick: () => {
-    if (!window.isSecureContext || !navigator.geolocation) { status.textContent = 'Location needs a secure (https) connection here. Please pick your city below.'; return; }
-    locate.disabled = true; status.textContent = 'Finding you…';
-    navigator.geolocation.getCurrentPosition(({ coords }) => {
-      const found = nearestCity(coords.latitude, coords.longitude);
-      if (found.key) { status.textContent = `${THEMES[found.key].greeting}! Theming everything for ${THEMES[found.key].name}.`; setTimeout(() => choose(found.key), 900); }
-      else { locate.disabled = false; status.textContent = `No theme for your area yet (nearest is ${THEMES[found.nearest].name}, ${Math.round(found.d)} km away). Pick one below.`; }
-    }, (err) => { locate.disabled = false; status.textContent = err.code === 1 ? 'No problem — pick your city below.' : 'We could not find your location. Pick your city below.'; }, { timeout: 10000, maximumAge: 3_600_000 });
+  const choose = (p) => { setPlace(p); close(); redrawOutcome(); };
+  const results = h('div', { class: 'city-options' });
+  const showFeatured = () => results.replaceChildren(...Object.keys(THEMES).map((k) => h('button', { type: 'button', class: `city-option ${k === city ? 'suggested' : ''}`, onclick: () => choose(featured(k)) }, THEMES[k].name, h('small', {}, THEMES[k].country))));
+  showFeatured();
+  const search = h('input', { type: 'search', placeholder: 'Type any city — Riyadh, Mumbai, London, São Paulo…', 'aria-label': 'Your city', autocomplete: 'off' });
+  let timer;
+  search.addEventListener('input', () => {
+    clearTimeout(timer);
+    const q = search.value.trim();
+    if (q.length < 2) { showFeatured(); return; }
+    timer = setTimeout(async () => {
+      const found = await api(`/api/places/search?q=${encodeURIComponent(q)}`).catch(() => null);
+      const list = found?.length ? found : [placeFromName(q)];
+      results.replaceChildren(...list.map((p) => h('button', { type: 'button', class: 'city-option', onclick: () => choose(p) }, p.name, h('small', {}, p.country || 'Use this name'))));
+    }, 250);
+  });
+  search.addEventListener('keydown', (e) => { if (e.key === 'Enter' && search.value.trim()) { e.preventDefault(); results.querySelector('button')?.click(); } });
+  const locateBtn = h('button', { class: 'primary', type: 'button', onclick: () => {
+    locateBtn.disabled = true; status.textContent = 'Finding you…';
+    locate((p, why) => { locateBtn.disabled = false; if (p) { status.textContent = `${greetingOf(p)}! Theming everything for ${p.name}.`; setTimeout(close, 800); } else status.textContent = why || 'Please type your city.'; });
   } }, '📍 Use my location');
   const modal = h('div', { class: 'city-modal', role: 'dialog', 'aria-modal': 'true', onclick: (e) => e.target === modal && close() },
     h('div', { class: 'city-dialog' },
-      h('h2', {}, 'Make it feel like home'),
-      h('p', {}, 'Share your location and the whole experience takes your city\'s colours and skyline.'),
-      h('div', { class: 'row' }, locate, h('button', { class: 'link', type: 'button', onclick: () => choose(null) }, 'Not now')),
-      status,
-      h('div', { class: 'city-options' }, Object.entries(THEMES).map(([key, t]) =>
-        h('button', { type: 'button', class: `city-option ${key === suggested ? 'suggested' : ''}`, onclick: () => choose(key) }, t.name, h('small', {}, key === suggested ? 'Suggested for you' : t.landmarks.split(' · ')[0])))),
-      h('p', { class: 'privacy' }, 'Your coordinates stay in this browser. Only the city name is kept, so your team sees the same theme.')));
+      h('h2', {}, 'Where in the world are you?'),
+      h('p', {}, 'Any city: the page takes its photography, its local time and its currency for the business case.'),
+      h('div', { class: 'row' }, locateBtn, h('button', { class: 'link', type: 'button', onclick: () => choose(null) }, 'No city')),
+      search, status, results,
+      h('p', { class: 'privacy' }, 'Your position is used once to name the city and is never stored. Only the city is kept, so your team sees the same.')));
   modal.addEventListener('keydown', (e) => e.key === 'Escape' && close());
   document.body.append(modal);
-  locate.focus();
+  search.focus();
 }
 
 // ---------------------------------------------------------------------------
@@ -178,8 +237,7 @@ const draft = { profileId: null, name: '', email: '', company: '', title: '', te
 
 function cityClock() {
   const el = h('span', { class: 'clock' });
-  const zone = city ? THEMES[city].zones?.[0] : undefined;
-  const tick = () => { try { el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: zone }); } catch { el.textContent = ''; } };
+  const tick = () => { try { el.textContent = new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }); } catch { el.textContent = ''; } };
   tick();
   const t = setInterval(() => (el.isConnected ? tick() : clearInterval(t)), 30_000);
   return el;
@@ -190,34 +248,31 @@ function postcard() {
     h('div', { class: 'sky', 'data-skyline': '', 'aria-hidden': 'true' }),
     h('div', { class: 'photos', 'data-photos': '', 'aria-hidden': 'true' }),
     h('div', { class: 'over' },
-      h('div', {}, h('small', { 'data-city-greeting': '' }, city ? THEMES[city].greeting : 'Welcome'), h('h3', { 'data-city-name': '' }, city ? THEMES[city].name : 'Your city'), h('small', { 'data-city-landmarks': '' }, city ? THEMES[city].landmarks : '')),
+      h('div', {}, h('small', { 'data-city-greeting': '' }, greetingOf(place)), h('h3', { 'data-city-name': '' }, place ? place.name : 'Your city'), h('small', { 'data-city-landmarks': '' }, landmarksOf(place))),
       cityClock()),
-    h('button', { type: 'button', class: 'change', onclick: () => askForCity() }, 'Change city'));
+    h('button', { type: 'button', class: 'change', onclick: () => askForCity() }, place ? 'Change city' : 'Choose your city'));
 }
 
-function tenantPanel() {
-  const engines = ['SAST', 'SCA', 'IaC', 'API', 'Containers'];
-  return h('div', { class: 'panel tight tenant' },
-    h('div', { class: 'spread' }, h('h4', {}, 'Scanning with'), h('span', { class: `tag ${site.connected ? 'ok' : 'bad'}` }, site.mode === 'demo' ? 'Demo tenant' : site.connected ? `Checkmarx One · ${site.tenantRegion}` : 'Not connected')),
-    h('div', { class: 'lights' }, h('span', { class: 'light fusion' }, h('i'), 'Fusion'), engines.map((e) => h('span', { class: `light ${site.connected ? '' : 'off'}` }, h('i'), e))),
-    h('p', { class: 'hint', style: 'margin:4px 0 0' }, 'Fusion reasons about how the application behaves across files, services and cloud resources — and scores each finding by its real exploitable path.'));
-}
-
-function samplesPanel(onPick) {
-  if (!site.samples?.length) return null;
-  return h('div', { class: 'panel tight' },
-    h('div', { class: 'spread' }, h('h4', {}, 'No repository with you?'), h('span', { class: 'muted', style: 'font-size:12px' }, 'Watch Fusion on one of ours')),
-    h('div', { class: 'samples', style: 'margin-top:10px' }, site.samples.map((s) =>
-      h('button', { type: 'button', class: 'sample', title: s.description, onclick: () => onPick(s) },
-        h('b', {}, s.name), s.hasResults ? h('span', { class: 'tag ok' }, '⚡ Instant') : h('span', { class: 'tag' }, s.language), h('span', { class: 'arrow' }, '→')))));
+const JOURNEY = [
+  ['Find', 'What others miss', 'Fusion reasons across code, services and cloud — and finds the risks rules cannot describe.'],
+  ['Prove', 'Only what is exploitable', 'AI Triage confirms what an attacker can actually reach. The noise drops away.'],
+  ['Fix', 'Before it ships', 'AI Remediation writes the fix. Your developers review and merge it.'],
+  ['Measure', 'In your currency', 'Hours and money saved, worked out for your region.'],
+];
+function journeyPanel() {
+  return h('div', { class: 'panel journey' },
+    h('div', { class: 'spread' }, h('span', { class: 'eyebrow' }, 'One platform, from finding to fixed'), h('span', { class: `tag ${site.connected ? 'ok' : ''}` }, site.mode === 'live' ? 'Checkmarx One' : 'Checkmarx One · demo')),
+    h('ol', {}, JOURNEY.map(([k, t, d], i) => h('li', {}, h('span', { class: 'n' }, i + 1), h('div', {}, h('b', {}, k, h('span', {}, ` · ${t}`)), h('small', {}, d))))));
 }
 
 async function renderWelcome() {
   await siteReady;
   setStep('who');
   setTeam(null);
-  const start = initialCity();
-  setCity(start.key, { remember: false });
+  const start = initialPlace();
+  setPlace(start.place, { remember: false });
+  // First visit on this device: ask the browser for the position (no dialog of ours).
+  if (!start.asked && site.askLocation !== false) locate((p) => { if (!p && start.place) storePlace(start.place); });
 
   const input = h('input', { type: 'search', placeholder: site.profilesLookup ? 'Type your name or company…' : 'Type your name…', autocomplete: 'off', 'aria-label': 'Your name or company', 'aria-expanded': 'false' });
   const list = h('div', { class: 'who-list', role: 'listbox', hidden: true });
@@ -229,7 +284,7 @@ async function renderWelcome() {
     try {
       const full = await api(`/api/profiles/${p.id}/pick`);
       Object.assign(draft, { profileId: full.id, name: full.name, email: full.email, company: full.company, title: full.title, technicalName: full.technical?.name ?? '', technicalEmail: full.technical?.email ?? '', team: full.team ?? [], repos: full.repos ?? [], githubUrl: full.repos?.[0] ?? '' });
-      if (full.city && !readCity()) setCity(full.city);
+      if (full.city && !readPlace()) setPlace(featured(full.city) ?? placeFromName(full.city));
     } catch { Object.assign(draft, { profileId: null, name: p.name, company: p.company, title: p.title }); }
     renderDetails();
   };
@@ -258,42 +313,53 @@ async function renderWelcome() {
   input.addEventListener('blur', () => setTimeout(close, 120));
 
   const b = site.branding;
+  const pickSample = (s) => { Object.assign(draft, { sampleId: s.id, githubUrl: '' }); renderDetails(); };
   app.replaceChildren(
     h('section', { class: 'welcome' },
       h('div', { class: 'welcome-copy' },
         h('span', { class: 'eyebrow' }, [b.event?.name, b.event?.venue].filter(Boolean).join(' · ') || 'Checkmate'),
-        h('h1', {}, b.event?.tagline || 'See what your scanner is missing.'),
-        h('p', { class: 'lede' }, b.callToAction || 'Bring your repository. In minutes, see what rule-based scanning never showed you.'),
+        h('h1', {}, b.event?.tagline || 'Find the risks that matter. Fix them before they ship.'),
+        h('p', { class: 'lede' }, b.callToAction || 'Checkmarx One finds what other tools miss, proves what is exploitable and fixes it with AI — one platform, from code to cloud.'),
         h('div', { class: 'who' },
           svg('svg', { class: 'glyph', viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '1.8', 'stroke-linecap': 'round' }, svg('circle', { cx: 11, cy: 11, r: 7 }), svg('path', { d: 'M20 20l-3.5-3.5' })),
           input, list),
-        h('div', { class: 'who-new' }, h('span', {}, 'Already invited? Two letters are enough.'), h('button', { type: 'button', class: 'link', onclick: fresh }, 'I\'m new here →')),
+        h('div', { class: 'who-new' }, h('span', {}, 'Invited? Two letters are enough.'), h('button', { type: 'button', class: 'link', onclick: fresh }, 'I\'m new here →')),
+        site.samples?.length ? h('div', { class: 'try' }, h('span', {}, 'No repository with you? See it on one of ours:'), site.samples.slice(0, 4).map((s) => h('button', { type: 'button', class: 'chip-btn', title: s.description, onclick: () => pickSample(s) }, s.hasResults ? '⚡ ' : '', s.name))) : null,
         h('div', { class: 'trust' },
-          h('div', {}, h('b', {}, '< 10 min'), h('span', {}, 'from repository to outcome')),
-          h('div', {}, h('b', {}, '1 verdict'), h('span', {}, 'a CISO can repeat')),
-          h('div', {}, h('b', {}, '0 noise'), h('span', {}, 'Fusion scores real exploitable paths')))),
-      h('div', { class: 'deck' }, postcard(), tenantPanel(), samplesPanel((s) => { Object.assign(draft, { sampleId: s.id, githubUrl: '', profileId: draft.profileId }); renderDetails(); }))));
-  if (!start.asked && site.askLocation !== false) askForCity();
-  paintSkylines();
+          h('div', {}, h('b', {}, 'Minutes'), h('span', {}, 'from repository to fixes')),
+          h('div', {}, h('b', {}, 'Exploitable'), h('span', {}, 'only what an attacker can reach')),
+          h('div', {}, h('b', {}, 'Fixed'), h('span', {}, 'patches your developers can merge')))),
+      h('div', { class: 'deck' }, postcard(), journeyPanel())));
+  paintSkylines(); paintPhotos();
   setTimeout(() => input.focus(), 50);
 }
 
 // ---------------------------------------------------------------------------
-// 2. You, your team and the repository
+// 2. One screen: you, your team, the repository, and go
 // ---------------------------------------------------------------------------
-function renderDetails() {
-  setStep(draft.sampleId || draft.githubUrl ? 'repo' : 'who');
+let scanOptions = null;
+const scanOptionsReady = () => (scanOptions ? Promise.resolve(scanOptions) : api('/api/scan-options').then((o) => (scanOptions = o)).catch(() => (scanOptions = { models: [], engines: [], fusion: { available: true, default: true } })));
+
+async function renderDetails() {
+  setStep('repo');
+  const opts = await scanOptionsReady();
   const errBox = h('p', { class: 'error', role: 'alert' });
   const field = (label, name, attrs = {}) => h('label', { class: 'field' }, h('span', {}, label, attrs.optional ? h('span', { class: 'opt' }, ' (optional)') : null), h('input', { name, value: draft[name] ?? '', ...attrs, optional: null }));
   const sameAsMe = h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'same', checked: !draft.technicalEmail || draft.technicalEmail === draft.email }), 'That\'s me');
 
+  // You: a card when the invitation already knows you, the four fields otherwise (or on Edit).
+  const known = Boolean(draft.profileId && draft.name && draft.email);
+  const youFields = h('div', { class: 'grid two compact', hidden: known }, field('Full name', 'name', { autocomplete: 'name', required: true }), field('Work email', 'email', { type: 'email', autocomplete: 'email', required: true }), field('Company', 'company', { autocomplete: 'organization', optional: true }), field('Title', 'title', { optional: true, placeholder: 'CISO, VP Engineering…' }));
+  const youCard = known ? h('div', { class: 'you-card' }, h('span', { class: 'avatar' }, initialsOf(draft.name)), h('div', {}, h('b', {}, draft.name), h('small', {}, [draft.title, draft.company].filter(Boolean).join(' · ')), h('small', { class: 'mono' }, draft.email)), h('button', { type: 'button', class: 'link', onclick: (e) => { youFields.hidden = false; e.currentTarget.remove(); } }, 'Edit')) : null;
+  const techFields = h('div', { class: 'grid two compact' }, field('Technical owner', 'technicalName', { placeholder: 'Name' }), field('Their email', 'technicalEmail', { type: 'email', placeholder: 'name@company.com' }));
+
   const team = [...draft.team.map((t) => ({ ...t }))];
   const teamBox = h('div', { class: 'people' });
   const renderTeam = () => teamBox.replaceChildren(...team.map((t, i) =>
-    h('span', { class: 'person' }, h('span', { class: 'avatar' }, initialsOf(t.name || t.email)), h('span', {}, t.name || t.email, t.name ? h('small', {}, ` · ${t.email}`) : null), h('button', { type: 'button', 'aria-label': `Remove ${t.name || t.email}`, onclick: () => { team.splice(i, 1); renderTeam(); } }, '×'))),
-    ...(team.length < 2 ? [h('span', { class: 'muted', style: 'font-size:13px;align-self:center' }, `Add at least ${2 - team.length} more colleague${team.length === 1 ? '' : 's'} who should see the outcome.`)] : []));
+    h('span', { class: 'person' }, h('span', { class: 'avatar' }, initialsOf(t.name || t.email)), h('span', {}, t.name || t.email), h('button', { type: 'button', 'aria-label': `Remove ${t.name || t.email}`, title: t.email, onclick: () => { team.splice(i, 1); renderTeam(); } }, '×'))),
+    ...(team.length < 2 ? [h('span', { class: 'muted', style: 'font-size:12.5px;align-self:center' }, `Add ${2 - team.length} more colleague${team.length === 1 ? '' : 's'} who should see the outcome.`)] : []));
   renderTeam();
-  const addName = h('input', { placeholder: 'Colleague name', 'aria-label': 'Colleague name' });
+  const addName = h('input', { placeholder: 'Colleague', 'aria-label': 'Colleague name' });
   const addEmail = h('input', { placeholder: 'name@company.com', type: 'email', 'aria-label': 'Colleague email' });
   const addPerson = () => {
     const email = addEmail.value.trim().toLowerCase();
@@ -303,37 +369,53 @@ function renderDetails() {
   };
   addEmail.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addPerson()));
 
+  // The repository: theirs, one they scanned before, or one of ours (ready at once).
   const repoInput = h('input', { name: 'githubUrl', type: 'url', placeholder: 'https://github.com/org/repo', value: draft.githubUrl });
-  const chips = h('div', { class: 'repo-chips' });
-  const renderChips = () => chips.replaceChildren(
-    ...draft.repos.map((r) => h('button', { type: 'button', class: 'repo-chip', 'aria-pressed': String(!draft.sampleId && repoInput.value === r), onclick: () => { draft.sampleId = null; repoInput.value = r; renderChips(); } }, r.replace('https://github.com/', ''), h('small', {}, 'Scanned with you before'))),
-    ...site.samples.map((s) => h('button', { type: 'button', class: 'repo-chip', 'aria-pressed': String(draft.sampleId === s.id), onclick: () => { draft.sampleId = draft.sampleId === s.id ? null : s.id; if (draft.sampleId) repoInput.value = ''; renderChips(); } }, s.name, h('small', {}, s.hasResults ? '⚡ Instant results' : s.language))));
-  renderChips();
-  repoInput.addEventListener('input', () => { if (repoInput.value) draft.sampleId = null; renderChips(); });
+  const consentBox = h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'consent' }), 'I\'m authorised to have this repository scanned.');
+  const choices = h('div', { class: 'repo-cards' });
+  const renderChoices = () => {
+    choices.replaceChildren(
+      ...draft.repos.map((r) => h('button', { type: 'button', class: 'repo-card', 'aria-pressed': String(!draft.sampleId && repoInput.value === r), onclick: () => { draft.sampleId = null; repoInput.value = r; renderChoices(); } }, h('b', {}, r.replace('https://github.com/', '')), h('small', {}, 'Yours · scanned with you before'))),
+      ...site.samples.map((s) => h('button', { type: 'button', class: 'repo-card', 'aria-pressed': String(draft.sampleId === s.id), onclick: () => { draft.sampleId = draft.sampleId === s.id ? null : s.id; if (draft.sampleId) repoInput.value = ''; renderChoices(); } }, h('b', {}, s.name), h('small', {}, s.hasResults ? '⚡ Results ready now' : s.language || 'Sample'))));
+    consentBox.hidden = Boolean(draft.sampleId);
+  };
+  renderChoices();
+  repoInput.addEventListener('input', () => { if (repoInput.value) draft.sampleId = null; renderChoices(); });
+
+  // How it scans: Fusion with the deterministic engines, on the model the tenant offers.
+  const models = opts.models ?? [];
+  let llmModel = models.find((m) => m.default)?.key ?? models[0]?.key ?? '';
+  const modelSel = models.length > 1 ? h('select', { 'aria-label': 'Fusion model', onchange: (e) => { llmModel = e.target.value; } }, models.map((m) => h('option', { value: m.key, selected: m.key === llmModel }, m.label))) : null;
+  const engines = (opts.engines ?? []).map((e) => e.label);
 
   setTeam(null);
-  const form = h('form', { class: 'details', novalidate: true });
+  const form = h('form', { class: 'details one', novalidate: true });
   form.append(
     h('div', { class: 'panel' },
-      h('div', { class: 'form-head' }, h('span', { class: 'avatar' }, initialsOf(draft.name)), h('div', {}, h('h2', {}, draft.profileId ? `Welcome back, ${draft.name.split(' ')[0]}` : 'Tell us who you are'), h('p', {}, draft.profileId ? 'We have most of this already — check it and add your repository.' : 'Three lines, and your team\'s addresses if you have them.'))),
-      h('div', { class: 'grid two' }, field('Full name', 'name', { autocomplete: 'name', required: true }), field('Work email', 'email', { type: 'email', autocomplete: 'email', required: true }), field('Company', 'company', { autocomplete: 'organization', optional: true }), field('Title', 'title', { optional: true, placeholder: 'CISO, VP Engineering…' }))),
-    h('div', { class: 'panel' },
-      h('div', { class: 'spread' }, h('div', {}, h('h3', {}, 'Technical owner of the repository'), h('p', { class: 'hint' }, 'The engineer who can act on what Fusion finds.')), sameAsMe),
-      h('div', { class: 'grid two', id: 'tech-fields' }, field('Name', 'technicalName'), field('Email', 'technicalEmail', { type: 'email' }))),
-    h('div', { class: 'panel' },
-      h('h3', {}, 'Your team'), h('p', { class: 'hint' }, 'Operations points of contact. They get the outcome link; you can invite more at any time.'),
-      teamBox,
-      h('div', { class: 'add-person', style: 'margin-top:10px' }, addName, addEmail, h('button', { type: 'button', onclick: addPerson }, 'Add')),
+      h('h3', {}, known ? `Welcome back, ${draft.name.split(' ')[0]}` : 'You and your team'),
+      h('p', { class: 'hint' }, known ? 'Your invitation filled this in. Check it and go.' : 'Who you are, and who should see the outcome.'),
+      youCard, youFields,
+      h('div', { class: 'spread sub' }, h('h4', {}, 'Who can fix it'), sameAsMe), techFields,
+      h('h4', { class: 'sub' }, 'Who should see it'), teamBox,
+      h('div', { class: 'add-person' }, addName, addEmail, h('button', { type: 'button', onclick: addPerson }, 'Add')),
       h('p', { class: 'error', 'data-error': 'contacts' })),
     h('div', { class: 'panel' },
-      h('h3', {}, 'Repository'), h('p', { class: 'hint' }, 'A GitHub URL. Private? The booth team can add a token under Settings.'),
-      h('div', { class: 'repo-pick' }, h('div', { class: 'grid two' }, h('label', { class: 'field' }, h('span', {}, 'GitHub repository'), repoInput), field('Branch', 'branch', { optional: true, placeholder: 'main' })), chips),
-      h('label', { class: 'check', style: 'margin-top:12px' }, h('input', { type: 'checkbox', name: 'consent' }), 'I\'m authorised to have this repository scanned by Checkmarx One.'),
-      h('p', { class: 'error', 'data-error': 'consent' }),
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inviteNow', checked: true }), 'Email my team the outcome link now.')),
-    h('div', { class: 'row actions' }, h('button', { type: 'submit', class: 'golden big' }, 'Choose how to scan →'), h('button', { type: 'button', class: 'ghost', onclick: () => renderWelcome() }, 'Back'), errBox));
+      h('h3', {}, 'The application'), h('p', { class: 'hint' }, 'A GitHub repository — or one of ours, with results ready now.'),
+      h('div', { class: 'grid repo-row' }, h('label', { class: 'field' }, h('span', {}, 'GitHub repository'), repoInput), field('Branch', 'branch', { optional: true, placeholder: 'main' })),
+      choices, consentBox, h('p', { class: 'error', 'data-error': 'consent' })),
+    h('div', { class: 'panel go' },
+      h('span', { class: 'eyebrow' }, 'Checkmarx One'),
+      h('h3', {}, 'Find it, prove it, fix it'),
+      h('div', { class: 'scan-facts' }, h('span', { class: 'tag fusion' }, '✦ Fusion'), engines.map((e) => h('span', { class: 'tag' }, e))),
+      h('p', { class: 'hint' }, 'Fusion reasons about the whole application; the engines cover the known patterns. AI then triages and fixes what is real.'),
+      modelSel ? h('label', { class: 'field' }, h('span', {}, 'Fusion model ', h('small', {}, opts.source === 'tenant' ? 'from your tenant' : '')), modelSel) : null,
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', name: 'inviteNow', checked: true }), 'Email my team the outcome link.'),
+      h('div', { class: 'stack', style: 'margin-top:auto;gap:8px' },
+        h('button', { type: 'submit', class: 'golden big' }, 'Find and fix →'),
+        h('span', { class: 'muted', style: 'font-size:12.5px' }, 'Usually a few minutes. You can invite more people while it runs.'),
+        h('button', { type: 'button', class: 'ghost sm', onclick: () => renderWelcome() }, '← Back'),
+        errBox)));
 
-  const techFields = form.querySelector('#tech-fields');
   const syncSame = () => { techFields.hidden = sameAsMe.firstChild.checked; };
   sameAsMe.firstChild.addEventListener('change', syncSame);
   syncSame();
@@ -351,7 +433,8 @@ function renderDetails() {
       name: fd.get('name'), email: fd.get('email'), company: fd.get('company'), title: fd.get('title'),
       technicalName: same ? fd.get('name') : fd.get('technicalName'), technicalEmail: same ? fd.get('email') : fd.get('technicalEmail'),
       contacts: team, sampleId: draft.sampleId ?? undefined, githubUrl: fd.get('githubUrl'), branch: fd.get('branch'),
-      consent: form.consent.checked, inviteNow: form.inviteNow.checked, theme: city ?? undefined,
+      consent: form.consent.checked, inviteNow: form.inviteNow.checked, theme: city ?? undefined, place: place ?? undefined,
+      scan: { fusion: opts.fusion?.available !== false, llmModel: llmModel || undefined },
     };
     const btn = form.querySelector('button[type=submit]');
     btn.disabled = true;
@@ -363,14 +446,15 @@ function renderDetails() {
       btn.disabled = false;
       if (err.data?.errors) {
         let first = null;
-        for (const [field, msg] of Object.entries(err.data.errors)) {
-          const slot = form.querySelector(`[data-error="${field}"]`);
+        for (const [name, msg] of Object.entries(err.data.errors)) {
+          const slot = form.querySelector(`[data-error="${name}"]`);
           if (slot) { slot.textContent = msg; continue; }
-          const input = form.elements[field];
+          const input = form.elements[name];
           if (!input) continue;
+          if (input.closest('[hidden]')) input.closest('[hidden]').hidden = false;
           input.classList.add('invalid'); input.after(h('span', { class: 'field-error' }, msg)); first ??= input;
         }
-        if (first) { first.scrollIntoView({ block: 'center', behavior: 'smooth' }); first.focus(); }
+        if (first) first.focus();
         errBox.textContent = 'Please check the highlighted fields.';
       } else errBox.textContent = err.message;
     }
@@ -396,7 +480,7 @@ async function renderSession(id, key, { reload = true } = {}) {
     catch (err) { app.replaceChildren(h('div', { class: 'panel', style: 'max-width:640px;margin:40px auto' }, h('h2', {}, 'Scan not found'), h('p', {}, err.message), h('a', { href: '/' }, 'Start again'))); return; }
   }
   const s = current;
-  if (document.documentElement.dataset.cityFor !== s.id) { setCity(s.theme ?? initialCity().key, { remember: false }); document.documentElement.dataset.cityFor = s.id; }
+  if (document.documentElement.dataset.cityFor !== s.id) { setPlace(s.place?.key ? s.place : s.theme ? featured(s.theme) ?? { key: s.theme, name: '', country: '', countryCode: '' } : initialPlace().place, { remember: false }); document.documentElement.dataset.cityFor = s.id; }
   const rerender = () => renderSession(id, key, { reload: false });
   setTeam(s, id, key);
   const typed = [...document.querySelectorAll('#invite-form input')].map((i) => i.value);
@@ -503,7 +587,7 @@ function outcomeView(s, id, key, rerender) {
   const fixes = Object.values(a.remediation?.items ?? {}).filter((i) => i.status === 'done').length;
   const tabs = [
     ['overview', 'Overview'],
-    s.assistEnabled !== false ? ['loop', busy ? '✦ Close the loop · running' : fixes ? `✦ Close the loop · ${fixes} fixed` : '✦ Close the loop'] : null,
+    s.assistEnabled !== false ? ['loop', busy ? '✦ Fix with AI · running' : fixes ? `✦ Fix with AI · ${fixes} fixed` : '✦ Fix with AI'] : null,
     site.impact ? ['impact', 'Business impact'] : null,
     corr.length || map ? ['fusion', 'What Fusion saw'] : null,
     ['results', 'All results', all.length],
@@ -515,23 +599,17 @@ function outcomeView(s, id, key, rerender) {
   let body;
   // What fixing the Fusion gaps is worth, in the visitor's currency (the Business impact tab has the detail).
   const im = site.impact && s.fusionOnly.length ? impactFor(s, 'fusion', 1) : null;
-  const money = im ? h('button', { type: 'button', class: 'hero-money', onclick: () => { ui.impactScope = 'fusion'; go('impact'); } }, h('span', { class: 'loop-k' }, 'Business impact'), h('b', {}, formatCompact(im.money.net, im.currency, im.locale)), h('small', {}, `saved by fixing the ${s.fusionOnly.length} Fusion gap${s.fusionOnly.length === 1 ? '' : 's'} now · ${im.hours.total} h back`), h('em', {}, 'See how →')) : null;
   if (tab === 'overview') body = h('div', { class: 'overview' },
-    h('section', { class: `panel outcome-hero ${money ? 'with-money' : ''}` },
+    h('section', { class: 'panel outcome-hero' },
       dial(o.exposure?.score ?? 0, o.exposure?.band ?? 'Low'),
       h('div', {},
         h('h1', {}, o.headline),
         h('p', { class: 'verdict' }, o.verdict),
         h('div', { class: 'scan-facts' }, (o.scanned?.engines ?? []).map((e) => h('span', { class: 'tag' }, scannerLabel(e === 'microengines' ? 'secrets' : e))), o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
         h('div', { class: 'row', style: 'margin-top:14px' },
-          s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => go('loop') }, '✦ Triage and fix with AI →') : null,
-          h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`))),
-      money),
-    h('div', { class: 'tiles' },
-      h('button', { type: 'button', class: 'tile fusion', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, h('b', {}, c.fusionOnly ?? 0), h('span', {}, 'found only by Fusion')),
-      h('div', { class: 'tile' }, h('b', {}, c.total ?? 0), h('span', {}, 'total findings')),
-      ...['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map((sev) => h('button', { type: 'button', class: `tile sev-${sev.toLowerCase()}`, onclick: () => { ui.severities = new Set([sev]); ui.fusionOnly = false; ui.scanner = 'all'; go('results'); } }, h('b', {}, c.bySeverity?.[sev] ?? 0), h('span', {}, sev.toLowerCase()))),
-      h('div', { class: 'tile' }, h('b', {}, c.confirmedByFusion ?? 0), h('span', {}, 'confirmed by both'))),
+          s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => fixAll(s, id, key, 'fusion', go) }, (s.assist?.remediation?.summary?.fixed ? '✦ See the fixes →' : `✦ Fix ${c.fusionOnly ? `the ${c.fusionOnly}` : 'them'} with AI →`)) : null,
+          h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`)))),
+    storyStrip(s, im, go),
     h('div', { class: 'grid two' },
       h('div', { class: 'panel' }, h('h4', {}, 'Where rule-based scanning was blind'), o.blindSpots?.length ? h('div', { class: 'blind' }, o.blindSpots.slice(0, 4).map((t) => h('div', { class: 'blind-row' }, h('span', {}, h('b', {}, t.label), h('span', { class: 'muted' }, ` · worst ${titleCase(t.worst)}`)), h('span', { class: 'tag accent' }, `${t.fusionOnly} Fusion-only`), h('span', { class: 'bar' }, h('i', { style: `width:${Math.round((t.fusionOnly / Math.max(1, c.fusionOnly)) * 100)}%` }))))) : h('p', { class: 'muted' }, 'Nothing Fusion-only on this scan: the rules covered it.')),
       h('div', { class: 'panel' }, h('h4', {}, 'First moves'), h('ol', { class: 'moves' }, (o.firstMoves ?? []).slice(0, 5).map((m) => h('li', {}, m))))));
@@ -545,11 +623,41 @@ function outcomeView(s, id, key, rerender) {
 }
 
 
+/** One click: AI Triage, then AI Remediation on what is real (simulated unless switched on in admin). */
+async function fixAll(s, id, key, scope, go) {
+  ui.assistScope = scope;
+  if (s.assist?.remediation?.status === 'done' || s.assist?.triage?.status === 'running' || s.assist?.remediation?.status === 'running') { go('loop'); return; }
+  try {
+    current = await api(`/api/sessions/${id}/assist/fix`, { k: key, scope });
+    ui.otab = 'loop';
+    renderSession(id, key, { reload: false });
+    pollTimer = setTimeout(() => renderSession(id, key), 1500);
+  } catch (e) { ui.assistMsg = e.message; go('loop'); }
+}
+
+/** The story at a glance: found → proven → fixed → saved. */
+function storyStrip(s, im, go) {
+  const a = s.assist ?? {};
+  const tri = a.triage ?? {};
+  const rem = a.remediation ?? {};
+  const fixed = Object.values(rem.items ?? {}).filter((i) => i.status === 'done').length;
+  const real = tri.summary ? tri.summary.vulnerable + (tri.summary.uncertain ?? 0) : null;
+  const stage = (k, big, small, state, onclick) => h(onclick ? 'button' : 'div', { type: onclick ? 'button' : undefined, class: `story-stage ${state}`, onclick }, h('span', { class: 'loop-k' }, k), h('b', {}, big), h('small', {}, small));
+  return h('div', { class: 'story' },
+    stage('Found only by Fusion', String(s.summary?.fusionOnly ?? 0), `risks your rules could not see · ${s.summary?.total ?? 0} findings in all`, 'done', () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); }),
+    h('span', { class: 'loop-arrow' }, '→'),
+    stage('Proven exploitable', real === null ? (tri.status === 'running' ? '…' : '—') : String(real), real === null ? (tri.status === 'running' ? 'AI Triage is reasoning…' : 'AI Triage, one click') : `${tri.summary.notExploitable} set aside as not exploitable`, tri.status === 'running' ? 'running' : real !== null ? 'done' : '', () => go('loop')),
+    h('span', { class: 'loop-arrow' }, '→'),
+    stage('Fixed by AI', rem.status === 'idle' || !rem.status ? '—' : String(fixed), rem.status === 'running' ? 'AI Remediation is writing fixes…' : fixed ? 'patches ready for your developers' : 'AI Remediation, same click', rem.status === 'running' ? 'running' : fixed ? 'done' : '', () => go('loop')),
+    h('span', { class: 'loop-arrow' }, '→'),
+    im ? stage('Saved', formatCompact(im.money.net, im.currency, im.locale), `${im.hours.total} engineering hours back`, 'money', () => go('impact')) : stage('Saved', '—', 'Business impact', '', null));
+}
+
 // --- Business impact: what finding and fixing these gaps is worth -------------------
 // The arithmetic is CxMissionZero's (Impact page, Cx Credits Calculator): public/impact.js.
 function impactFor(s, scope, repos) {
   const findings = scope === 'fusion' ? s.fusionOnly : allFindings(s);
-  const region = regionFor(city, navigator.language, site.impact ?? {});
+  const region = regionFor(place ?? city, navigator.language, site.impact ?? {});
   return computeImpact({ findings, verdicts: s.assist?.triage?.items ?? {}, loc: s.loc, repos, settings: site.impact ?? {}, region });
 }
 
@@ -562,7 +670,7 @@ function impactPanel(s, rerender, go) {
   const segment = (name, value, options, onPick) => h('div', { class: 'seg scope', role: 'radiogroup', 'aria-label': name }, options.map(([k, l, n]) =>
     h('label', { class: value === k ? 'on' : '' }, h('input', { type: 'radio', name, value: k, checked: value === k, onchange: () => { onPick(k); rerender(); } }), h('span', {}, l), n != null ? h('span', { class: 'k' }, n) : null)));
   const card = (label, value, note, cls = '') => h('div', { class: `impact-card ${cls}` }, h('span', { class: 'loop-k' }, label), h('b', {}, value), h('small', {}, note));
-  const regionName = city ? THEMES[city]?.name : '';
+  const regionName = place?.name || (city ? THEMES[city]?.name : '') || '';
   const scale = im.repos > 1 ? ` across ${im.repos} repositories like this one` : '';
   const what = ui.impactScope === 'fusion' ? `the ${s.fusionOnly.length} gap${s.fusionOnly.length === 1 ? '' : 's'} only Fusion found` : `all ${allFindings(s).length} findings`;
 
@@ -652,14 +760,16 @@ function loopPanel(s, id, key, rerender) {
     h('div', { class: 'loop-controls' },
       h('div', { class: 'seg scope', role: 'radiogroup', 'aria-label': 'Scope' }, Object.entries(SCOPE_LABEL).map(([k, l]) => h('label', { class: ui.assistScope === k ? 'on' : '' }, h('input', { type: 'radio', name: 'assist-scope', value: k, checked: ui.assistScope === k, disabled: busy, onchange: () => { ui.assistScope = k; rerender(); } }), h('span', {}, l), h('span', { class: 'k' }, counts[k] ?? 0)))),
       h('div', { class: 'row' },
-        h('button', { type: 'button', class: 'golden big', disabled: busy || !n, onclick: (e) => call('triage', e.currentTarget) }, tri.status === 'running' ? `Triaging ${triDone}/${tri.requested}…` : `✦ Triage ${n} with AI`),
-        h('button', { type: 'button', class: 'golden big', disabled: busy || !n, onclick: (e) => call('remediate', e.currentTarget) }, rem.status === 'running' ? `Remediating ${remDone}/${rem.requested}…` : `⚡ Remediate ${n} with AI`),
+        h('button', { type: 'button', class: 'golden big', disabled: busy || !n, onclick: (e) => call('fix', e.currentTarget) }, tri.status === 'running' ? `Triaging ${triDone}/${tri.requested}…` : rem.status === 'running' ? `Fixing ${remDone}/${rem.requested}…` : `✦ Triage & fix ${n} with AI`),
+        h('button', { type: 'button', class: 'ghost sm', disabled: busy || !n, onclick: (e) => call('triage', e.currentTarget) }, 'Triage only'),
+        h('button', { type: 'button', class: 'ghost sm', disabled: busy || !n, onclick: (e) => call('remediate', e.currentTarget) }, 'Fix only'),
         fixes.length && !busy ? sendBtn : null),
       msg),
     busy || triItems.length || remItems.length ? h('div', { class: 'grid two loop-live' },
       triItems.length ? h('div', {}, h('h4', {}, tri.status === 'running' ? 'AI Triage — live' : 'AI Triage'), h('div', { class: 'progress' }, h('i', { style: `width:${Math.round((triDone / Math.max(1, tri.requested)) * 100)}%` })), h('ul', { class: 'ticker' }, latest(tri.items, 'triage')), tri.error ? h('p', { class: 'error' }, tri.error) : null) : null,
       remItems.length ? h('div', {}, h('h4', {}, rem.status === 'running' ? 'AI Remediation — live' : 'AI Remediation'), h('div', { class: 'progress' }, h('i', { style: `width:${Math.round((remDone / Math.max(1, rem.requested)) * 100)}%` })), h('ul', { class: 'ticker' }, latest(rem.items, 'remediation')), rem.error ? h('p', { class: 'error' }, rem.error) : null) : null) : null,
-    fixes.length ? h('p', { class: 'hint', style: 'margin:12px 0 0' }, 'Each fix is in the result drawer under ⚡ AI fix, as a patch that applies with git apply. Sending emails them all to the technical owner as one developer brief.') : null);
+    fixes.length ? h('p', { class: 'hint', style: 'margin:12px 0 0' }, 'Each fix is in the result drawer under ⚡ AI fix, as a patch that applies with git apply. Sending emails them all to the technical owner as one developer brief.') : null,
+    fixes.length && site.impact ? (() => { const im = impactFor(s, ui.assistScope === 'fusion' ? 'fusion' : 'all', 1); return h('button', { type: 'button', class: 'saved-line', onclick: () => { ui.otab = 'impact'; ui.impactScope = ui.assistScope === 'fusion' ? 'fusion' : 'all'; rerender(); } }, h('b', {}, formatCompact(im.money.net, im.currency, im.locale)), ` saved by fixing these now · ${im.hours.total} engineering hours back · see the business impact →`); })() : null);
 }
 const c0 = (s) => s.summary?.total ?? 0;
 
@@ -713,7 +823,10 @@ function drawer(f, ran, rerender) {
     f.fusionOnly ? h('div', { class: 'never' }, h('b', {}, 'Never reported by rule-based scanning'), h('p', {}, 'Every other engine ran on this code and none of them flagged it:'), h('div', { class: 'misses' }, (ran.length ? ran : ['SAST', 'SCA', 'IaC Security']).map((e) => h('span', {}, '✕ ', e)), h('span', { class: 'hit' }, '✓ Fusion'))) : null,
     sec('What Fusion determined', f.fusionInsight || ex.whatItMeans),
     f.correlation ? h('div', { class: 'dsec' }, h('h4', {}, 'Risk score, after correlation'), h('div', { class: 'corr-row', style: 'margin-top:4px' }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.correlation.direction === 'raised' ? 'Raised: an exploitable path exists' : f.correlation.direction === 'lowered' ? 'Lowered: no exploitable path found' : 'Unchanged'), h('small', {}, f.correlation.reason), f.correlation.with ? h('small', {}, `Correlated with ${f.correlation.with}`) : null))) : null,
-    sec('Why rule-based tools miss this', ex.whyFusionFoundIt), sec('Business impact', ex.businessImpact), sec('How to fix', ex.howToFix),
+    f.fusionOnly ? sec('Why the deterministic engines did not report it', ex.whyMissed || ex.whyFusionFoundIt) : null,
+    f.fusionOnly && ex.whyCaught ? sec('Why Checkmarx Fusion found it', ex.whyCaught) : null,
+    f.fusionOnly && ex.evidence?.length ? h('ul', { class: 'evidence' }, ex.evidence.map((e) => h('li', {}, e))) : null,
+    sec('Business impact', ex.businessImpact), sec('How to fix', ex.howToFix),
     ex.urgency ? h('p', { class: 'urgency' }, ex.urgency) : null, f.nodes?.length ? h('div', { class: 'dsec' }, h('h4', {}, 'Where it happens'), vector(f, 4)) : null];
   else if (tab === 'triage') body = v.status === 'running' ? [h('p', { class: 'muted' }, 'Checkmarx One AI is reasoning about whether this is reachable and exploitable…')] : [
     h('div', { class: 'dsec' }, h('h4', {}, 'Verdict'), h('div', { class: 'row' }, verdictTag(v, 'lg'), v.reachability ? h('span', { class: 'tag' }, titleCase(v.reachability)) : null, v.exploitability ? h('span', { class: 'tag' }, titleCase(v.exploitability)) : null)),

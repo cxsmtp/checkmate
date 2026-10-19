@@ -154,3 +154,84 @@ export function templateExplanation(finding) {
     source: 'template',
   };
 }
+
+// ---------------------------------------------------------------------------
+// Fusion-only findings: why the deterministic engines did not report it, and why Fusion did.
+// Written at scan time for every Fusion-only finding, by kind of weakness, with the finding's own
+// evidence (files, path length, Fusion's own words) so the booth never improvises.
+// ---------------------------------------------------------------------------
+const MISSED = [
+  {
+    key: 'access', cwes: ['284', '285', '639', '862', '863', '269', '287', '306', '307', '384', '613', '640'], words: ['authoriz', 'authoris', 'access control', 'idor', 'privilege', 'authentication', 'session'],
+    missed: 'Rule-based SAST looks for something dangerous that is present — a tainted value reaching a risky call. A missing or incomplete permission check is an absence: there is no dangerous call to match, and whether a check is "enough" depends on who is meant to see the data, which no rule knows.',
+    caught: 'Fusion reads the route, the handler and the data it returns together and asks what the code is meant to protect. It found data or an action a caller can reach without the check that should guard it — for example an object fetched by an identifier the client supplies, with nothing confirming it belongs to that caller.',
+  },
+  {
+    key: 'logic', cwes: ['362', '367', '841', '799', '770', '840'], words: ['race', 'business logic', 'workflow', 'toctou', 'limit', 'replay'],
+    missed: 'Business-logic flaws are correct code doing the wrong thing: every line is safe on its own. Rules match code shapes, so a step that can be skipped, repeated or run twice at once leaves nothing for a rule to find.',
+    caught: 'Fusion follows the whole flow — the order of the steps, what each one assumes was checked before — and found a path where that assumption does not hold.',
+  },
+  {
+    key: 'injection', cwes: ['89', '77', '78', '94', '917', '611', '776', '943', '90', '643'], words: ['injection', 'sql', 'command', 'eval', 'template', 'xpath', 'ldap'],
+    missed: 'SAST rules describe each framework\'s sources, sinks and sanitisers. Here the input travels through code the rules have no model for — a helper, a wrapper or a dynamic call across files — so the flow breaks before it reaches a known sink, or a home-grown "sanitiser" is wrongly trusted.',
+    caught: 'Fusion followed the value through every hop without needing a rule for each library, and judged that what happens to it on the way does not make it safe at the point it is used.',
+  },
+  {
+    key: 'web', cwes: ['79', '80', '352', '601', '1021', '942', '346'], words: ['xss', 'cross-site', 'redirect', 'csrf', 'cors', 'origin'],
+    missed: 'Rules flag known output functions and known missing headers. Here the unsafe behaviour comes from how the front end and the API are put together — data rendered on another page, or a protection switched off in configuration — which no single file shows.',
+    caught: 'Fusion connected the front-end code, the API and its configuration and saw the attacker-controlled value reach the browser (or the protection missing) on a path a visitor can actually use.',
+  },
+  {
+    key: 'secrets', cwes: ['798', '259', '321', '540', '312', '522', '256'], words: ['secret', 'password', 'credential', 'hardcoded', 'hard-coded', 'key'],
+    missed: 'Secret detection matches known key formats and high-entropy strings. A credential that looks ordinary, is assembled in code, or is only sensitive because of where it is used does not match any pattern.',
+    caught: 'Fusion understood what the value is used for — signing, logging in, reaching a service — and recognised it as a credential by its role rather than its shape.',
+  },
+  {
+    key: 'crypto', cwes: ['326', '327', '328', '330', '338', '916', '759', '760', '347'], words: ['crypto', 'cipher', 'hash', 'random', 'token', 'jwt', 'signature'],
+    missed: 'Rules flag weak algorithm names. Here the algorithm names are fine; the weakness is in how they are used — a predictable seed, a token that is never verified, a key reused for another purpose.',
+    caught: 'Fusion followed the token or key from where it is made to where it is trusted and saw the guarantee the code relies on is not actually provided.',
+  },
+  {
+    key: 'data', cwes: ['200', '209', '532', '117', '215', '359', '201'], words: ['exposure', 'sensitive', 'leak', 'log', 'disclosure', 'pii'],
+    missed: 'Whether data is sensitive depends on what it is, not on the code that handles it. Rules see an ordinary object returned or logged; they cannot tell that it carries personal or secret fields.',
+    caught: 'Fusion read the data model behind the response and recognised fields that should never leave the service, on a path an outside caller can reach.',
+  },
+  {
+    key: 'ssrf', cwes: ['918'], words: ['ssrf', 'server-side request', 'url'],
+    missed: 'The request is built in one place and sent in another, often through an HTTP client wrapper the rules do not model, so the link between the user\'s input and the outgoing call is lost.',
+    caught: 'Fusion traced the address from the incoming request to the outgoing call and to the cloud resources the service can reach from inside.',
+  },
+  {
+    key: 'files', cwes: ['22', '23', '36', '73', '434', '502'], words: ['path', 'upload', 'file', 'deserializ', 'deserialis'],
+    missed: 'The file name or the object is checked, but the check does not cover what is actually used later — a pattern that is safe in one file and unsafe once the pieces are combined.',
+    caught: 'Fusion compared the check with what is really opened, stored or deserialised further down and found the gap between them.',
+  },
+];
+const MISSED_DEFAULT = {
+  missed: 'Deterministic engines report only what a written rule describes. This weakness depends on how several parts of the application behave together, so no single rule matches it.',
+  caught: 'Fusion reasons about the application as a whole — code, services and cloud resources — instead of matching patterns, and found a path an attacker can use.',
+};
+
+const engineNames = { sast: 'SAST', sca: 'SCA', kics: 'IaC Security', apisec: 'API Security', containers: 'Container Security', microengines: 'Secret Detection' };
+
+/**
+ * For a Fusion-only finding: { whyMissed, whyCaught, evidence[] } in plain words.
+ * `profile`: the scan profile that ran (engines, llmModel, presetName).
+ */
+export function fusionExplanation(finding, profile = {}) {
+  const text = `${finding.title} ${finding.description} ${finding.cwe ?? ''}`.toLowerCase();
+  const k = MISSED.find((m) => finding.cwe && m.cwes.includes(String(finding.cwe))) ?? MISSED.find((m) => m.words.some((w) => text.includes(w))) ?? MISSED_DEFAULT;
+  const engines = (profile.engines ?? ['sast', 'sca']).map((e) => engineNames[e] ?? e.toUpperCase());
+  const files = [...new Set((finding.nodes ?? []).map((n) => n.fileName).filter(Boolean))];
+  const evidence = [];
+  if (engines.length) evidence.push(`${engines.join(' and ')} ran on the same code${profile.presetName ? ` (preset ${profile.presetName})` : ''} and reported nothing at this location.`);
+  if (files.length > 1) evidence.push(`The path crosses ${files.length} files: ${files.slice(0, 4).join(' → ')}${files.length > 4 ? ' → …' : ''}.`);
+  else if (finding.file) evidence.push(`Found at ${finding.file}${finding.line ? `, line ${finding.line}` : ''}.`);
+  if ((finding.nodes ?? []).length > 2) evidence.push(`${finding.nodes.length} steps from where the data enters to where it is used.`);
+  if (profile.llmModel) evidence.push(`Reasoned by Fusion with the ${profile.llmModel} model.`);
+  return {
+    whyMissed: `${k.missed}`,
+    whyCaught: finding.fusionInsight ? `${k.caught} In Fusion's words: ${finding.fusionInsight}` : k.caught,
+    evidence,
+  };
+}

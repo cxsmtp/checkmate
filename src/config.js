@@ -29,7 +29,8 @@ export const config = {
   trustProxy: env.TRUST_PROXY ?? 'loopback',
   publicBaseUrl: '',
   mode: 'demo',
-  sampleReuseHours: 24,
+  sampleReuseHours: 168,
+  samplesAutoScan: true,
   defaultCity: 'auto',
   askLocation: true,
   event: {},
@@ -55,13 +56,18 @@ export const ACCENTS = ['ink', 'lagoon', 'sage', 'plum', 'ochre', 'city'];
 export const SETTINGS = {
   // Event
   'event.name': { env: 'EVENT_NAME', default: 'Checkmate' },
-  'event.tagline': { env: 'EVENT_TAGLINE', default: 'See what your scanner is missing.' },
+  'event.tagline': { env: 'EVENT_TAGLINE', default: 'Find the risks that matter. Fix them before they ship.' },
   'event.venue': { env: 'EVENT_VENUE', default: '' },
   publicBaseUrl: { env: 'PUBLIC_BASE_URL', default: '' },
-  // auto: real Checkmarx One scans as soon as the API key connects, the demo otherwise.
-  mode: { env: 'CX_MODE', default: 'auto', options: ['auto', 'live', 'demo'] },
-  sampleReuseHours: { env: 'SAMPLE_REUSE_HOURS', default: 24, type: 'number' },
-  defaultCity: { env: 'DEFAULT_CITY', default: 'auto', options: ['auto', ...CITY_THEMES] },
+  // auto: real Checkmarx One scans whenever an API key is set (the demo only without one);
+  // live: never the demo. "demo" from older .env files reads as auto: a connected key always scans for real.
+  mode: { env: 'CX_MODE', default: 'auto', options: ['auto', 'live'], aliases: { demo: 'auto' } },
+  // A sample's results are always shown at once; after this many hours a fresh scan starts in the background (0: never).
+  sampleReuseHours: { env: 'SAMPLE_REUSE_HOURS', default: 168, type: 'number' },
+  // Scan each sample repository as soon as it is added (and keep its results fresh), so visitors see results at once.
+  samplesAutoScan: { env: 'SAMPLES_AUTO_SCAN', default: true, type: 'boolean' },
+  // auto: each visitor's own city (position, else time zone); or one city for everyone, by name ("Dubai", "Riyadh").
+  defaultCity: { env: 'DEFAULT_CITY', default: 'auto', type: 'city' },
   askLocation: { env: 'ASK_LOCATION', default: true, type: 'boolean' },
 
   // Branding (as in CxMissionZero: the organisation's name, logo, accent and look)
@@ -69,12 +75,14 @@ export const SETTINGS = {
   'branding.companyName': { env: 'BRAND_COMPANY', default: 'Checkmarx' },
   'branding.logoUrl': { env: 'BRAND_LOGO_URL', default: '', type: 'image' },
   'branding.iconUrl': { env: 'BRAND_ICON_URL', default: '', type: 'image' },
+  // The brand mark when no icon is uploaded: one or two characters (letters or an emoji).
+  'branding.markText': { env: 'BRAND_MARK', default: '✦', type: 'mark' },
   'branding.logoHeight': { env: 'BRAND_LOGO_HEIGHT', default: 36, type: 'number' },
   'branding.accentColor': { env: 'BRAND_ACCENT', default: '', type: 'color' },
   'branding.look': { env: 'BRAND_LOOK', default: 'command-center', options: LOOKS },
   'branding.theme': { env: 'BRAND_THEME', default: 'auto', options: ['auto', 'light', 'dark'] },
   'branding.accent': { env: 'BRAND_ACCENT_NAME', default: 'ink', options: ACCENTS },
-  'branding.callToAction': { env: 'BRAND_CTA', default: 'Bring your repository. In minutes, see what rule-based scanning never showed you.' },
+  'branding.callToAction': { env: 'BRAND_CTA', default: 'Checkmarx One finds what other tools miss, proves what is exploitable and fixes it with AI — one platform, from code to cloud.' },
   'branding.footer': { env: 'BRAND_FOOTER', default: '' },
 
   // Checkmarx One: the key is enough; the tenant, IAM and API URLs are derived from it
@@ -91,7 +99,7 @@ export const SETTINGS = {
 
   // What a Checkmate scan runs. Keys verified against the tenant's own configuration
   // (scan.config.ai.fusionEnabled, scan.config.ai.llmModel, scan.config.sast.extendedAnalysis).
-  'scan.engines': { env: 'CX_ENGINES', default: 'sast,sca,kics,apisec', type: 'list' },
+  'scan.engines': { env: 'CX_ENGINES', default: 'sast,sca', type: 'list' },
   'scan.fusion': { env: 'CX_FUSION', default: true, type: 'boolean' },
   'scan.llmModel': { env: 'CX_FUSION_LLM_MODEL', default: '' },
   'scan.extendedAnalysis': { env: 'CX_SAST_EXTENDED_ANALYSIS', default: true, type: 'boolean' },
@@ -185,6 +193,17 @@ function coerce(def, raw) {
     case 'image':
       if (!isSafeImageUrl(raw)) throw new Error('Must be an https address or an uploaded PNG, JPG, SVG or WebP of up to 300 KB.');
       return String(raw).trim();
+    case 'mark': {
+      const m = String(raw).trim();
+      if ([...m].length > 3) throw new Error('One to three characters, such as CX or ✦.');
+      return m;
+    }
+    case 'city': {
+      const c = String(raw).trim();
+      if (c.length > 80 || /[<>"]/.test(c)) throw new Error('A city name of up to 80 characters, or auto.');
+      const legacy = { 'new-york': 'New York' };
+      return legacy[c] ?? (c.toLowerCase() === 'auto' ? 'auto' : c);
+    }
     case 'currency': {
       const c = String(raw).trim().toUpperCase();
       if (c && !/^[A-Z]{3}$/.test(c)) throw new Error('Must be a three-letter currency code such as AED, USD or SGD (empty: the visitor\'s region).');
@@ -196,6 +215,7 @@ function coerce(def, raw) {
       return c;
     }
     default:
+      if (def.aliases?.[String(raw)]) return def.aliases[String(raw)];
       if (def.options && !def.options.includes(String(raw))) throw new Error(`Expected one of ${def.options.join(', ')}`);
       return String(raw).trim();
   }
@@ -302,7 +322,8 @@ function writeSaved(saved) {
 
 /** Settings for the admin panel: secrets are reported as set / not set, never returned. */
 /** Whether scans run on the Checkmarx One tenant (live) or are simulated (demo). */
-export const isLive = () => config.mode === 'live' || (config.mode === 'auto' && Boolean(config.connection));
+/** Real Checkmarx One scans: whenever the API key gives a connection (or live is forced). */
+export const isLive = () => config.mode === 'live' || Boolean(config.connection);
 /** Whether AI Triage and Remediation call Checkmarx One (only when switched on, and only with live scans). */
 export const assistLive = () => isLive() && config.assist.mode === 'live';
 
@@ -329,6 +350,7 @@ export function publicBranding() {
     companyName: b.companyName,
     logoUrl: b.logoUrl,
     iconUrl: b.iconUrl,
+    markText: b.markText,
     logoHeight: b.logoHeight,
     accentColor: b.accentColor,
     look: b.look,

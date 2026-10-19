@@ -1,3 +1,4 @@
+import { config } from './config.js';
 // Demo mode: what the tenant would answer, and realistic results in Checkmarx One's
 // /api/results shape, so the booth can rehearse (or keep running) without a tenant.
 // Fusion results are shaped exactly as the real engine returns them (type "sast",
@@ -11,12 +12,12 @@ export function demoScanOptions() {
     tenant: 'demo',
     region: 'EU',
     engines: [
-      { key: 'sast', label: 'SAST', default: true },
-      { key: 'sca', label: 'SCA (open source)', default: true },
-      { key: 'kics', label: 'IaC Security', default: true },
-      { key: 'apisec', label: 'API Security', default: true },
-      { key: 'containers', label: 'Container Security', default: false },
-      { key: 'microengines', label: 'Secrets & repo health', default: true },
+      { key: 'sast', label: 'SAST', default: config.scan.engines.includes('sast') },
+      { key: 'sca', label: 'SCA (open source)', default: config.scan.engines.includes('sca') },
+      { key: 'kics', label: 'IaC Security', default: config.scan.engines.includes('kics') },
+      { key: 'apisec', label: 'API Security', default: config.scan.engines.includes('apisec') },
+      { key: 'containers', label: 'Container Security', default: config.scan.engines.includes('containers') },
+      { key: 'microengines', label: 'Secrets & repo health', default: config.scan.engines.includes('microengines') },
     ],
     fusion: { available: true, default: true },
     models: [

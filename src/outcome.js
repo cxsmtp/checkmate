@@ -71,13 +71,13 @@ export function buildOutcome(fusionOnly, others, { profile = {}, repoName = 'thi
 
   let headline;
   if (!all.length) headline = `No security findings were reported for ${repoName} on this scan.`;
-  else if (fusionOnly.length) headline = `Fusion found ${plural(fusionOnly.length, 'issue')} in ${repoName} that rule-based scanning did not see${seriousFusion ? `, ${seriousFusion} of them critical or high` : ''}.`;
+  else if (fusionOnly.length) headline = `${plural(fusionOnly.length, 'risk')} in ${repoName} that rule-based scanning could not see${seriousFusion ? ` — ${seriousFusion} critical or high` : ''}. Every one can be triaged and fixed with AI today.`;
   else headline = `Fusion agreed with the rule-based engines on ${repoName}: ${plural(all.length, 'finding')}, none that only Fusion saw.`;
 
   const verdict = !all.length
     ? 'Nothing to act on from this scan. Keep Fusion on for the next change: logic flaws usually arrive with new features.'
     : fusionOnly.length
-      ? `Rule-based scanning covers patterns it has rules for. ${blindSpots.length ? `Here it was blind to ${blindSpots.map((t) => t.label.toLowerCase()).join(', ')}.` : ''} Fusion reasons about how the application behaves across files, which is where these were.`
+      ? `${blindSpots.length ? `Rule-based scanning was blind to ${blindSpots.map((t) => t.label.toLowerCase()).join(', ')}. ` : ''}Fusion found them by reasoning about how the application behaves; AI Triage proves which are exploitable and AI Remediation writes the fixes — on the same platform, in minutes.`
       : `${confirmed ? `Fusion independently confirmed ${plural(confirmed, 'rule-based finding')}, which raises confidence they are real. ` : ''}Every issue here is one the rules can describe; review the critical and high ones first.`;
 
   const firstMoves = [];
