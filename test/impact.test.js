@@ -68,7 +68,7 @@ test('every Fusion-only finding carries why the rules missed it and why Fusion f
   for (const f of fusionOnly) {
     assert.ok(f.explanation.whyMissed.length > 40);
     assert.ok(f.explanation.whyCaught.length > 40);
-    assert.match(f.explanation.evidence[0], /SAST and SCA ran on the same code/);
+    assert.match(f.explanation.evidence[0], /Rule-based scanning ran on the same code/);
   }
   assert.match(fusionOnly[0].explanation.whyMissed, /absence/);
   assert.match(fusionOnly[0].explanation.whyCaught, /In Fusion's words: The id comes from the URL\./);
