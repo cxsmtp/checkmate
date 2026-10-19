@@ -74,9 +74,19 @@ jobs:
           # A visitor picks a sample repository (demo mode) and gets results.
           SAMPLE=$(curl -sf http://127.0.0.1:3000/api/config | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).samples[0].id))")
           RES=$(curl -sf -H 'Content-Type: application/json' -d "{\"name\":\"CI\",\"email\":\"ci@example.com\",\"technicalName\":\"CI\",\"technicalEmail\":\"ci@example.com\",\"contacts\":[{\"name\":\"A\",\"email\":\"a@example.com\"},{\"name\":\"B\",\"email\":\"b@example.com\"}],\"sampleId\":\"$SAMPLE\",\"inviteNow\":false}" http://127.0.0.1:3000/api/sessions)
-          URL=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const r=JSON.parse(s);console.log('/api/sessions/'+r.id+'?k='+r.accessKey)})")
-          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"complete"' && break; sleep 2; done
+          SID=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).id))")
+          KEY=$(echo "$RES" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).accessKey))")
+          URL="/api/sessions/$SID?k=$KEY"
+          # The scan profile is read from the tenant (demo options here); the visitor then chooses and starts.
+          for i in $(seq 1 15); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"profile"' && break; sleep 1; done
+          curl -sf "http://127.0.0.1:3000$URL" | grep -q '"models":\['
+          curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"fusion\":true,\"llmModel\":\"opus-5.5\"}" "http://127.0.0.1:3000/api/sessions/$SID/start" | grep -q '"stage":"queued"'
+          for i in $(seq 1 40); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"stage":"complete"' && break; sleep 2; done
           curl -sf "http://127.0.0.1:3000$URL" | grep -q '"fusionOnly":\['
+          # One click triages the Fusion-only findings with AI (demo: the same stages against a simulation).
+          curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"scope\":\"fusion\"}" "http://127.0.0.1:3000/api/sessions/$SID/assist/triage" | grep -q '"status":"running"'
+          for i in $(seq 1 30); do curl -sf "http://127.0.0.1:3000$URL" | grep -q '"vulnerable":' && break; sleep 2; done
+          curl -sf "http://127.0.0.1:3000$URL" | grep -q '"vulnerable":4'
           # Stops cleanly through tini.
           docker stop cm > /dev/null
           docker logs cm 2>&1 | grep -q 'Stopped cleanly'
