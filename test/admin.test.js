@@ -18,6 +18,9 @@ test('Checkmarx One credentials only go to https addresses on checkmarx.net', ()
   assert.equal(isAllowedCheckmarxUrl('https://checkmarx.net.evil.com'), false);
   assert.equal(isAllowedCheckmarxUrl('https://evilcheckmarx.net'), false);
   assert.equal(isAllowedCheckmarxUrl('not a url'), false);
+  assert.equal(isAllowedCheckmarxUrl('http://127.0.0.1:8080', true), true, 'a local stand-in, only when custom hosts are allowed');
+  assert.equal(isAllowedCheckmarxUrl('http://127.0.0.1:8080', false), false);
+  assert.equal(isAllowedCheckmarxUrl('http://10.0.0.5', true), false, 'plain http never leaves the machine');
 });
 
 test('settings: validated, secrets never returned, blank secret keeps the stored one', () => {

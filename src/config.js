@@ -205,7 +205,9 @@ export function isAllowedCheckmarxUrl(value, allowCustom = config.checkmarx.allo
   } catch {
     return false;
   }
-  if (url.protocol !== 'https:') return false;
+  // Plain http only to this machine, and only when custom hosts are allowed (a local stand-in while testing).
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(allowCustom && url.protocol === 'http:' && loopback)) return false;
   if (allowCustom) return true;
   return url.hostname === 'checkmarx.net' || url.hostname.endsWith('.checkmarx.net');
 }

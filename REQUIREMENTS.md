@@ -110,4 +110,4 @@ Strict CSP (`default-src 'self'`, `img-src 'self' data: https:`), security heade
 
 13.1. Unit tests for the Fusion fingerprint and classification, scan config, outcome, knowledge templates, profiles and CSV, `.env` import, settings validation, AI assist parsers and scopes, integrity and update logic.
 13.2. A browser end-to-end rehearsal of the whole visitor flow and the admin console in demo mode (city → type-ahead → details → scan profile → running → outcome → triage → remediate → send), at desktop and phone widths, with no console errors.
-13.3. Live verification against a tenant requires the API key in the admin console; the Fusion service base paths must be confirmed on that tenant.
+13.3. The live flow (sign-in, tenant options, project/application, scan with the ai config, polling, Fusion correlation, results, outcome, AI Triage, AI Remediation, developer brief) is tested end to end against a stand-in that answers every endpoint with the tenant's shapes. Verification against a real tenant requires the API key in the admin console; the Fusion service base paths must be confirmed on that tenant.

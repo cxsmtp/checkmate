@@ -118,7 +118,7 @@ Without SMTP, every email (invitations, *results are ready*, the developer brief
 ```bash
 npm install
 npm start          # http://localhost:3000, demo mode, data in ./data, 5 fictional profiles seeded
-npm test           # 41 unit tests
+npm test           # 42 tests, including the whole live flow against a Checkmarx One stand-in (test/helpers/mock-cxone.mjs)
 ```
 
 ```
