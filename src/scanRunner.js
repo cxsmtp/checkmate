@@ -4,6 +4,7 @@ import * as cx from './checkmarx.js';
 import { demoResults, demoScanOptions, demoFusion } from './demo.js';
 import { classify } from './fusion.js';
 import { explainFindings } from './explain.js';
+import { startFixAll } from './assist.js';
 import { buildOutcome } from './outcome.js';
 import { send, scanCompleteEmail } from './mailer.js';
 import * as samples from './samples.js';
@@ -62,6 +63,13 @@ async function runLive(session, log) {
   const { repo, profile } = session;
   const branch = session.branch || config.checkmarx.defaultBranch;
   let { projectId, scanId, applicationId } = session.cx ?? {};
+
+  // Results already published on the tenant (a sample's newest scan): read them, nothing to start.
+  if (session.cx?.published) {
+    setStage(session.id, 'fetching-results');
+    const [raw, loc] = await Promise.all([cx.getResults(scanId), cx.scanLoc(scanId)]);
+    return { raw, fusion: { riskScores: [], map: null, status: 'skipped' }, loc };
+  }
 
   if (!scanId) {
     setStage(session.id, 'creating-project');
@@ -179,9 +187,10 @@ export async function runScan(id, log = console) {
     const outcome = buildOutcome(fusionOnly, others, { profile: session.profile, repoName: `${session.repo.owner}/${session.repo.repo}` });
     outcome.correlation = { status: fusion.status, error: fusion.error, changed: fusion.riskScores.length, raised: fusion.riskScores.filter((r) => r.newRiskValue > r.oldRiskValue).length, lowered: fusion.riskScores.filter((r) => r.newRiskValue < r.oldRiskValue).length };
 
-    const done = setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap: fusion.map, loc, completedAt: new Date().toISOString() });
+    const done = setStage(id, 'complete', { fusionOnly, others, summary, outcome, fusionMap: fusion.map, loc, completedAt: session.cx?.published && session.cx.completedAt ? session.cx.completedAt : new Date().toISOString() });
     if (done.sampleId) samples.recordScan(done.sampleId, done.id, done.completedAt, !done.cx?.demo);
     if (done.kind === 'sample-refresh') return;
+    autoFix(id, log);
 
     const recipients = [done.customer?.email, done.technical?.email].filter((v, i, a) => v && a.indexOf(v) === i);
     for (const to of recipients) {
@@ -210,6 +219,27 @@ function attachFusionCorrelation(fusionOnly, others, fusion) {
     };
   }
   // A Fusion finding's own words, when the result carried them (demo, or a future API field).
+}
+
+/**
+ * A sample whose results are already published on the tenant: the session takes that scan
+ * (project, scan, engines, when it completed) and reads its results — ready in seconds.
+ */
+export function usePublishedScan(id, { project, scan }, log = console) {
+  const engines = (scan.engines ?? []).filter((e) => e !== 'ai');
+  store.update(id, (s) => {
+    s.profile = { engines: engines.length ? engines : ['sast', 'sca'], fusion: (scan.engines ?? []).includes('ai'), llmModel: '', presetName: '', extendedAnalysis: false };
+    s.cx = { projectId: project.id, projectName: project.name, scanId: scan.id, branch: scan.branch ?? '', status: 'Completed', published: true, completedAt: scan.updatedAt ?? scan.createdAt ?? new Date().toISOString(), url: cx.scanUiUrl(project.id, scan.id), engines: [] };
+  });
+  setStage(id, 'queued');
+  return runScan(id, log);
+}
+
+/** The outcome arrives complete: AI Triage, then AI Remediation, on the Fusion findings (when switched on). */
+export function autoFix(id, log = console) {
+  const s = store.load(id);
+  if (!config.assist.enabled || !config.assist.autoRun || s?.stage !== 'complete' || s.assist?.triage || !s.fusionOnly?.length) return;
+  try { startFixAll(id, 'fusion', log); } catch (e) { log.warn?.(`AI Triage & Remediation did not start for ${id}: ${e.message}`); }
 }
 
 /** Picks up scans that were in flight when the server restarted. */

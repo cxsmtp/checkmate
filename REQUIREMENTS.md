@@ -74,10 +74,10 @@ This document states everything Checkmate is required to do, in enough detail to
 
 7a.1. A **Business impact** tab on the Outcome page (and a card in the Overview hero) states what finding and fixing the gaps now saves, in money, with the assumptions beside it. The arithmetic is CxMissionZero's (Impact page, Cx Credits Calculator), in `public/impact.js`, shared by the page and the tests.
 7a.2. **Currency by region**: the visitor's city (Dubai → AED, New York / Boston → USD, Singapore → SGD, Melbourne → AUD); without a city, the browser's country (en-GB → GBP, de-DE → EUR …); USD otherwise. An administrator may fix one currency for everyone. Amounts are written unambiguously (SGD 9,000, A$9,000, AED 9,000). Choosing another city redraws the amounts.
-7a.3. **Engineering time**: findings × minutes to triage by hand (20) + real findings × minutes to fix by hand (120), valued at the region's fully loaded engineering hour (USD 110, AED 250, SGD 90, AUD 100, EUR 85, GBP 80 …) or the administrator's rate.
+7a.3. **Engineering time**: findings × minutes to triage by hand (20) + real findings × minutes to fix by hand (120), valued at the engineering hour from the administrator's **rates table** (currency, engineer per hour, one credit). Default: USD 25 an hour, USD 1 a credit. A visitor whose region has a row sees that currency; everyone else the first row.
 7a.4. **Real findings**: AI Triage's verdicts where it has run (Vulnerable / Confirmed / Urgent are real; Not exploitable / Probably not exploitable are not); 30% assumed false positives on the rest. False positives cost their triage only.
 7a.5. **Avoided after release**: the same fixes once in production cost 6× (find, hotfix, retest, redeploy); the saving counts the extra 5×.
-7a.6. **Credits**: 1 per finding triaged, 3 per finding remediated, plus the Fusion scan (whole 10K-line units of the scanned lines × credits per 10K LOC, when set); lines from `GET /api/sast-metadata/{scanId}`. Priced (and subtracted, with the return multiple) only when a credit price is set.
+7a.6. **Credits**: 1 per finding triaged, 3 per finding remediated (both settable), plus the Fusion scan (whole 10K-line units × credits per 10K LOC, when set); lines from `GET /api/sast-metadata/{scanId}`. Priced at the region's credit price and subtracted; the return multiple is shown.
 7a.7. Scope **✦ Fusion gaps** (default) or **Everything found**; scale **This repository / × 10 / × 50 / × 250 repositories like this one**. *How it is worked out* lists every assumption with its value. Every number is editable under Admin → Settings → Business impact.
 
 ### 7b. The executive journey (one screen per step, no scrolling)
@@ -91,6 +91,24 @@ This document states everything Checkmate is required to do, in enough detail to
 7b.7. Every Fusion-only finding carries, written at scan time: *Why the deterministic engines did not report it* (by kind of weakness), *Why Checkmarx Fusion found it* (with Fusion's own words), and the evidence (which engines ran, files on the path, steps, model).
 
 7b.8. Visitors never see engine names. Only **Fusion** is named; everything else is "rule-based scanning" (the running screen has two lines, Rule-based scanning and Fusion; results open on *Found by Fusion*, with *Everything* beside it; Fusion explanations speak of rule-based scanning). Engines remain an admin setting.
+
+### 7d. The board brief (the ending)
+
+7d.1. The outcome arrives complete: when the results land, AI Triage and then AI Remediation run on the Fusion findings by themselves (`ASSIST_AUTO_RUN`, default on; simulated unless Live), so nobody clicks through a simulation.
+7d.2. **★ Board report**: one page (screen at 1440×900 and A4 landscape), printable / Save as PDF, and emailed to the visitor, the technical owner and the team (`POST /api/sessions/:id/board/send`). Built by `public/board.js`, shared by the page and the email:
+ - headline: Fusion uncovered N risks rule-based scanning could not see, M critical or high, with fixes ready within X minutes;
+ - KPIs: unknown risks uncovered, proven exploitable (noise set aside), fixes ready, saved after credits;
+ - why it matters now: frontier AI makes unknown flaws real for attackers; Fusion puts the same class of models on the defender's side; AI Triage and Remediation shrink the backlog;
+ - the process with timestamps: scanned → unknowns found → proven → fixed → with developers;
+ - exposure before → after AI fixes; cost effectiveness (hours, value, credits and their cost, net saving, return);
+ - recommendations to the board (portfolio projection for 50 applications, AI triage and remediation as the default path, quarterly exposure reporting);
+ - provenance: tenant, scan, live or demo.
+7d.3. Live provenance everywhere: the outcome title says *Live from Checkmarx One · tenant (region) · scan … · completed …* with a pulsing Live chip, or *Demo results* when no tenant is connected.
+
+### 7e. Sample repositories with published results
+
+7e.1. When a sample is added (and when the tenant connects), Checkmate looks on the tenant for results already published for it — the project named in the sample's *Checkmarx One project* field, else every project on that repository URL — and uses the newest completed scan, Fusion scans (engine `ai`) first. Its results are ready in seconds, dated by the scan. A fresh scan runs only when there is no published result or it is older than the refresh window.
+7e.2. The admin sample list shows the state (ready / reading published results / scanning / last scan failed with the reason from Checkmarx One).
 
 ### 7c. Any city in the world
 
@@ -118,7 +136,7 @@ Checkmarx One: `CX_API_KEY` (secret), `CX_BASE_URL`, `CX_IAM_URL`, `CX_TENANT` (
 Scan: `CX_ENGINES`, `CX_FUSION`, `CX_FUSION_LLM_MODEL`, `CX_SAST_EXTENDED_ANALYSIS`, `CX_SAST_PRESET`, `SCAN_LET_VISITOR_CHOOSE`, `CX_FUSION_SCAN_CONFIG` (JSON array).
 Fusion: `FUSION_RESULT_MARKERS`, `FUSION_QUERY_ID_ZERO`, `FUSION_CORRELATE`, `FUSION_DISPATCHER_PATH`, `FUSION_RESULTS_PATH`, `FUSION_TIMEOUT_MS`.
 AI assist: `ASSIST_MODE` simulated|live (default simulated; live only with live scans), `ASSIST_ENABLED`, `ASSIST_POLL_INTERVAL_MS`, `ASSIST_TIMEOUT_MS`.
-Business impact: `IMPACT_ENABLED`, `IMPACT_TRIAGE_MINUTES`, `IMPACT_FIX_MINUTES`, `IMPACT_FP_PERCENT`, `IMPACT_RELEASE_MULTIPLIER`, `IMPACT_HOURLY_RATE`, `IMPACT_CURRENCY`, `IMPACT_CREDIT_PRICE`, `IMPACT_FUSION_CREDITS_PER_10K`.
+Business impact: `IMPACT_ENABLED`, `IMPACT_TRIAGE_MINUTES`, `IMPACT_FIX_MINUTES`, `IMPACT_FP_PERCENT`, `IMPACT_RELEASE_MULTIPLIER`, `IMPACT_RATES` (JSON rows; default USD 25/h, USD 1/credit), `IMPACT_TRIAGE_CREDITS` (1), `IMPACT_REMEDIATION_CREDITS` (3), `IMPACT_FUSION_CREDITS_PER_10K`; `ASSIST_AUTO_RUN`.
 Profiles & samples: `PROFILES_LOOKUP`, `PROFILES_MIN_CHARS`, `SAMPLES_AUTO_SCAN`, `SAMPLE_REUSE_HOURS` (refresh after, default 168). Brand mark: `BRAND_MARK` (shown when no icon is uploaded).
 Email: `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_REQUIRE_AUTH`, `SMTP_REJECT_UNAUTHORIZED`, `SMTP_USER`, `SMTP_PASS` (secret; alias `SMTP_PASSWORD`), `SMTP_FROM` (alias `SMTP_FROM_ADDRESS`), `SMTP_FROM_NAME`, `TEAM_NOTIFY_EMAIL`.
 Container: `PORT`, `HOST`, `DATA_DIR`, `TRUST_PROXY`, `ADMIN_PASSWORD`, `AUTO_UPDATE`, `UPDATE_CHECK_MINUTES`, `UPDATE_IMAGE`, `UPDATE_REGISTRY_TOKEN`, `GITHUB_READ_TOKEN`, `INTEGRITY_CHECK_HOURS`, `UPDATE_START_TIMEOUT_SECONDS`.

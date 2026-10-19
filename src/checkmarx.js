@@ -147,6 +147,35 @@ export async function getResults(scanId) {
   return all;
 }
 
+/**
+ * Results that are already published on the tenant for a repository: its project (by exact name
+ * when given, else every project on that repository URL) and that project's newest completed scan,
+ * Fusion scans (engine "ai") first. { project, scan } or null.
+ */
+export async function findPublishedScan({ projectName = '', repoUrl = '' } = {}) {
+  const cx = client();
+  let projects = [];
+  if (projectName) {
+    const page = await cx.request('/api/projects', { query: { names: projectName, limit: 5 } });
+    projects = (page?.projects ?? []).filter((p) => p.name === projectName);
+  }
+  if (!projects.length && repoUrl) {
+    const page = await cx.request('/api/projects', { query: { 'repo-url': repoUrl, limit: 20 } }).catch(() => null);
+    const want = repoUrl.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
+    projects = (page?.projects ?? []).filter((p) => String(p.repoUrl ?? '').replace(/\.git$/, '').replace(/\/$/, '').toLowerCase() === want);
+  }
+  let best = null;
+  for (const project of projects.slice(0, 10)) {
+    const page = await cx.request('/api/scans', { query: { 'project-id': project.id, statuses: 'Completed', limit: 10, sort: '-created_at' } }).catch(() => null);
+    const scans = page?.scans ?? [];
+    const scan = scans.find((x) => (x.engines ?? []).includes('ai')) ?? scans[0];
+    if (!scan) continue;
+    const rank = [(scan.engines ?? []).includes('ai') ? 1 : 0, Date.parse(scan.updatedAt ?? scan.createdAt ?? 0) || 0];
+    if (!best || rank[0] > best.rank[0] || (rank[0] === best.rank[0] && rank[1] > best.rank[1])) best = { project, scan, rank };
+  }
+  return best ? { project: best.project, scan: best.scan } : null;
+}
+
 /** Lines of code SAST scanned (GET /api/sast-metadata/{scanId} → loc), for the Fusion credits; null when not known. */
 export async function scanLoc(scanId) {
   const meta = await client().request(`/api/sast-metadata/${encodeURIComponent(scanId)}`).catch(() => null);

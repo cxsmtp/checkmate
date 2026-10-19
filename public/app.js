@@ -1,5 +1,6 @@
 import { THEMES, applyTheme, cityFromTimeZone, paintSkylines, setPhotos, addPhotos, hasPhotosFor, paintPhotos } from './themes.js';
 import { computeImpact, regionFor, formatMoney, formatCompact } from './impact.js';
+import { boardModel } from './board.js';
 
 const app = document.getElementById('app');
 
@@ -97,6 +98,7 @@ function setTitle(title, sub = '', stage = '') {
   document.getElementById('page-sub').textContent = sub;
   const chip = document.getElementById('page-stage');
   chip.textContent = stage; chip.hidden = !stage;
+  chip.classList.toggle('live', stage === 'Live'); chip.classList.toggle('demo', stage === 'Demo');
 }
 /** The Team button in the title bar: the team panel in a dialog, so no page has to carry it. */
 function setTeam(s, id, key) {
@@ -581,13 +583,15 @@ function outcomeView(s, id, key, rerender) {
   const corr = all.filter((f) => f.correlation).sort((a, b) => Math.abs(b.correlation.newRisk - b.correlation.oldRisk) - Math.abs(a.correlation.newRisk - a.correlation.oldRisk));
   const map = s.fusionMap;
   const go = (t) => { ui.otab = t; rerender(); app.scrollTo({ top: 0 }); };
-  setTitle(`${s.repo.owner}/${s.repo.repo}`, `${fmtDate(s.completedAt)}${s.reusedFrom ? ' · the most recent scan of this sample repository' : ''}`, 'Outcome');
+  const src = s.source ?? {};
+  setTitle(`${s.repo.owner}/${s.repo.repo}`, src.live ? `Live from Checkmarx One${src.tenant ? ` · ${src.tenant}` : ''}${src.region ? ` (${src.region})` : ''} · scan ${src.scan} · completed ${fmtDate(s.completedAt)}` : `Demo results — connect Checkmarx One for a live scan · ${fmtDate(s.completedAt)}`, src.live ? 'Live' : 'Demo');
   const a = s.assist ?? {};
   const busy = a.triage?.status === 'running' || a.remediation?.status === 'running';
   const fixes = Object.values(a.remediation?.items ?? {}).filter((i) => i.status === 'done').length;
   const tabs = [
     ['overview', 'Overview'],
     s.assistEnabled !== false ? ['loop', busy ? '✦ Fix with AI · running' : fixes ? `✦ Fix with AI · ${fixes} fixed` : '✦ Fix with AI'] : null,
+    ['board', '★ Board report'],
     site.impact ? ['impact', 'Business impact'] : null,
     corr.length || map ? ['fusion', 'What Fusion saw'] : null,
     ['results', 'All results', all.length],
@@ -607,7 +611,7 @@ function outcomeView(s, id, key, rerender) {
         h('p', { class: 'verdict' }, o.verdict),
         h('div', { class: 'scan-facts' }, o.scanned?.fusion ? h('span', { class: 'tag fusion' }, `✦ Fusion · ${o.scanned.llmModel || 'default model'}`) : null, o.correlation?.status === 'completed' ? h('span', { class: 'tag accent' }, `${o.correlation.changed} risk scores re-scored`) : o.correlation?.status === 'unavailable' ? h('span', { class: 'tag warn' }, 'Correlation unavailable') : null),
         h('div', { class: 'row', style: 'margin-top:14px' },
-          s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => fixAll(s, id, key, 'fusion', go) }, (s.assist?.remediation?.summary?.fixed ? '✦ See the fixes →' : `✦ Fix ${c.fusionOnly ? `the ${c.fusionOnly}` : 'them'} with AI →`)) : null,
+          s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => (s.assist?.remediation?.summary?.fixed ? go('board') : fixAll(s, id, key, 'fusion', go)) }, (s.assist?.remediation?.summary?.fixed ? '★ See the board report →' : `✦ Fix ${c.fusionOnly ? `the ${c.fusionOnly}` : 'them'} with AI →`)) : null,
           h('button', { type: 'button', onclick: () => { ui.fusionOnly = true; ui.scanner = 'all'; go('results'); } }, `See the ${c.fusionOnly ?? 0} Fusion-only findings`)))),
     storyStrip(s, im, go),
     h('div', { class: 'grid two' },
@@ -615,6 +619,7 @@ function outcomeView(s, id, key, rerender) {
       h('div', { class: 'panel' }, h('h4', {}, 'First moves'), h('ol', { class: 'moves' }, (o.firstMoves ?? []).slice(0, 5).map((m) => h('li', {}, m))))));
   else if (tab === 'loop') body = loopPanel(s, id, key, rerender);
   else if (tab === 'impact') body = impactPanel(s, rerender, go);
+  else if (tab === 'board') body = boardPanel(s, id, key);
   else if (tab === 'fusion') body = h('div', { class: 'grid two' },
     h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'What Fusion re-scored, and why'), corr.length ? h('div', { class: 'corr' }, corr.map((f) => h('button', { type: 'button', class: 'corr-row', style: 'text-align:left;min-height:0;cursor:pointer', onclick: () => { ui.selected = f.id; ui.tab = 'fusion'; ui.fusionOnly = false; ui.severities = new Set(); go('results'); } }, h('span', { class: `delta ${f.correlation.direction}` }, `${f.correlation.oldRisk.toFixed(1)} → ${f.correlation.newRisk.toFixed(1)}`), h('span', {}, h('b', {}, f.explanation?.plainTitle || f.title), h('small', {}, f.correlation.reason))))) : h('p', { class: 'muted' }, o.correlation?.error || 'No risk-score changes for this scan.')),
     map ? h('div', { class: 'panel scroll-panel' }, h('h4', {}, 'The application Fusion mapped'), h('p', { class: 'hint' }, `${map.summary?.microservices?.count ?? map.microservices?.length ?? 0} services · ${map.summary?.cloudResources?.count ?? map.resources?.length ?? 0} cloud resources · ${map.summary?.cloudResources?.access?.Public ?? 0} public`), h('div', { class: 'map' }, (map.resources ?? []).map((r) => h('div', { class: `res ${String(r.access).toLowerCase()}` }, h('b', {}, r.name), h('small', {}, r.type), h('span', { class: `tag ${String(r.access).toLowerCase() === 'public' ? 'bad' : ''}` }, r.access || 'Private')))), (map.microservices ?? []).length ? h('div', { class: 'scan-facts', style: 'margin-top:12px' }, map.microservices.map((m) => h('span', { class: 'tag' }, m.name))) : null) : null);
@@ -651,6 +656,48 @@ function storyStrip(s, im, go) {
     stage('Fixed by AI', rem.status === 'idle' || !rem.status ? '—' : String(fixed), rem.status === 'running' ? 'AI Remediation is writing fixes…' : fixed ? 'patches ready for your developers' : 'AI Remediation, same click', rem.status === 'running' ? 'running' : fixed ? 'done' : '', () => go('loop')),
     h('span', { class: 'loop-arrow' }, '→'),
     im ? stage('Saved', formatCompact(im.money.net, im.currency, im.locale), `${im.hours.total} engineering hours back`, 'money', () => go('impact')) : stage('Saved', '—', 'Business impact', '', null));
+}
+
+// --- The board brief: one page, printable, emailed --------------------------------
+function boardPanel(s, id, key) {
+  const b = boardModel({ session: s, settings: site.impact ?? {}, place: place ?? null, locale: navigator.language, appName: site.branding?.appName || 'Checkmate' });
+  const when = (iso) => (iso ? new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '—');
+  const msg = h('span', { class: 'muted', style: 'font-size:13px' });
+  const send = h('button', { type: 'button', class: 'primary', onclick: async () => {
+    send.disabled = true; msg.textContent = 'Sending…';
+    try {
+      const r = await api(`/api/sessions/${id}/board/send`, { k: key, place: place ?? undefined, locale: navigator.language });
+      const ok = r.results.filter((x) => x.ok).map((x) => x.to);
+      msg.textContent = ok.length ? `Sent to ${ok.join(', ')}` : 'Could not send';
+    } catch (e) { msg.textContent = e.message; }
+    send.disabled = false;
+  } }, '✉ Email it to me and my team');
+  const bar = (score, band, label) => h('div', { class: 'xbar' }, h('span', {}, label), h('div', { class: 'track' }, h('i', { class: `band-${band.toLowerCase()}`, style: `width:${Math.max(3, score)}%` })), h('b', {}, `${score}`, h('small', {}, ` ${band}`)));
+  return h('div', { class: 'board-wrap' },
+    h('div', { class: 'board-tools no-print' },
+      h('button', { type: 'button', class: 'golden', onclick: () => window.print() }, '⎙ Print or save as PDF'), send, msg,
+      b.live ? null : h('span', { class: 'tag warn' }, 'Demo results — connect Checkmarx One for a live brief')),
+    h('article', { class: 'board' },
+      h('header', { class: 'board-head' },
+        h('div', {}, h('span', { class: 'eyebrow' }, `Board brief · ${new Date(b.date).toLocaleDateString(undefined, { dateStyle: 'long' })}`), h('h2', {}, `${b.company}: securing ${b.repo} against AI-era unknowns`)),
+        h('div', { class: `stamp ${b.live ? 'live' : ''}` }, b.live ? 'Live on Checkmarx One' : 'Demo')),
+      h('p', { class: 'board-headline' }, b.headline),
+      h('div', { class: 'board-kpis' }, b.kpis.map((k, i) => h('div', { class: `bk ${i === 3 ? 'money' : ''}` }, h('span', {}, k.label), h('b', {}, k.value), h('small', {}, k.note)))),
+      h('div', { class: 'board-cols' },
+        h('div', {},
+          h('h4', {}, 'Why it matters now'), h('ul', { class: 'board-why' }, b.why.map((w) => h('li', {}, w))),
+          h('h4', {}, `The process${b.minutes ? ` · ${b.minutes} minute${b.minutes === 1 ? '' : 's'} end to end` : ''}`),
+          h('ol', { class: 'board-process' }, b.process.map((p) => h('li', { class: p.at ? 'done' : '' }, h('b', {}, p.step), h('span', {}, p.what), h('time', {}, when(p.at)))))),
+        h('div', {},
+          h('h4', {}, 'Exposure'), bar(b.exposure.before, b.exposure.beforeBand, 'Before'), bar(b.exposure.after, b.exposure.afterBand, 'After AI fixes'),
+          h('h4', {}, 'Cost effectiveness'),
+          h('dl', { class: 'board-cost' },
+            h('dt', {}, 'Engineering time saved'), h('dd', {}, `${b.cost.hours} h at ${b.cost.rate}/h`),
+            h('dt', {}, 'Value, incl. fixes before release'), h('dd', {}, b.cost.gross),
+            h('dt', {}, 'Checkmarx One credits'), h('dd', {}, `${b.cost.credits} · ${b.cost.creditCost}`),
+            h('dt', {}, 'Net saving'), h('dd', { class: 'strong' }, `${b.cost.net}${b.cost.roi ? ` · ${b.cost.roi}× return` : ''}`)),
+          h('h4', {}, 'Recommendations to the board'), h('ol', { class: 'board-recs' }, b.recommendations.map((r) => h('li', {}, r))))),
+      h('footer', { class: 'board-foot' }, `Prepared by ${b.appName} on Checkmarx One${b.tenant ? ` · tenant ${b.tenant}` : ''}${b.scan ? ` · scan ${b.scan}` : ''}${b.live ? ' · live results' : ' · demo results'}. Business-impact assumptions: Admin → Settings → Business impact.`)));
 }
 
 // --- Business impact: what finding and fixing these gaps is worth -------------------
@@ -695,10 +742,10 @@ function impactPanel(s, rerender, go) {
       h('summary', {}, 'How it is worked out'),
       h('ul', {},
         h('li', {}, `Triage by hand: ${st.triageMinutes} min a finding; a fix by hand: ${st.fixMinutes} min (the CxMissionZero Impact defaults).`),
-        h('li', {}, `Engineering hour: ${m(im.rate)}, fully loaded${im.rateFrom === 'region' ? ` — the ${im.currency} regional rate` : ' — set by your team'}.`),
+        h('li', {}, `Engineering hour: ${m(im.rate)}; one Checkmarx One credit: ${formatMoney(im.creditPrice, im.currency, im.locale, 2)}${im.regional ? '' : ' (the default rates; your region can have its own)'}.`),
         h('li', {}, `Real findings: ${verdictNote}; false positives cost their triage only.`),
         h('li', {}, `After release a fix costs ${st.releaseMultiplier}× (find, hotfix, retest, redeploy); the saving counts the extra ${st.releaseMultiplier - 1}×.`),
-        h('li', {}, `Credits (Cx Credits Calculator): 1 per finding triaged, 3 per finding remediated${im.loc ? `, Fusion ${st.fusionCreditsPer10k || '—'} per 10K lines × ${Math.ceil(im.loc / 10000)} units (${im.loc.toLocaleString()} lines scanned)` : ''}${im.money.cost === null ? '; not priced' : `, ${m(st.creditPrice)} each`}.`))),
+        h('li', {}, `Credits (Cx Credits Calculator): ${st.triageCredits} per finding triaged, ${st.remediationCredits} per finding remediated${im.loc ? `, Fusion ${st.fusionCreditsPer10k || '—'} per 10K lines × ${Math.ceil(im.loc / 10000)} units (${im.loc.toLocaleString()} lines scanned)` : ''}${im.money.cost === null ? '; not priced' : `, ${formatMoney(im.creditPrice, im.currency, im.locale, 2)} each`}.`))),
     h('div', { class: 'row', style: 'margin-top:12px' },
       s.assistEnabled !== false ? h('button', { type: 'button', class: 'golden', onclick: () => { ui.assistScope = ui.impactScope === 'fusion' ? 'fusion' : 'all'; go('loop'); } }, '✦ Make it real: triage and fix with AI →') : null));
 }

@@ -6,16 +6,9 @@ import { SEVERITY_ORDER } from './fusion.js';
  * codebase, what did Fusion see that rule-based scanning did not, and what to do first.
  */
 
-const WEIGHT = { CRITICAL: 10, HIGH: 5, MEDIUM: 2, LOW: 0.5, INFO: 0 };
-
-/** 0–100: how much attention this codebase needs today. */
-export function exposureScore(all) {
-  const raw = all.reduce((n, f) => n + (WEIGHT[f.severity] ?? 0), 0);
-  // Saturates: 1 critical + a handful of highs is already serious.
-  return Math.round(100 * (1 - Math.exp(-raw / 60)));
-}
-
-const band = (score) => (score >= 75 ? 'Critical' : score >= 45 ? 'High' : score >= 15 ? 'Moderate' : 'Low');
+// The exposure score is shared with the board brief (public/board.js), so both say the same.
+export { exposureScore } from '../public/board.js';
+import { exposureScore, exposureBand as band } from '../public/board.js';
 
 const THEMES = [
   { key: 'access', label: 'Access control & authorisation', cwes: ['284', '285', '639', '862', '863', '269', '640', '287', '306', '307', '384', '613'] },

@@ -10,9 +10,10 @@ import * as profiles from './profiles.js';
 import * as auth from './admin-auth.js';
 import { audit, recentAudit } from './audit.js';
 import { validateRegistration, isEmail } from './validation.js';
-import { prepareScan, startScan, runScan, resumeInFlight, reuseSampleScan } from './scanRunner.js';
-import { send, inviteEmail, fixesEmail, resultsLink, verifySmtp } from './mailer.js';
-import { testConnection, scanUiUrl } from './checkmarx.js';
+import { prepareScan, startScan, runScan, resumeInFlight, reuseSampleScan, usePublishedScan, autoFix } from './scanRunner.js';
+import { send, inviteEmail, fixesEmail, boardEmail, resultsLink, verifySmtp } from './mailer.js';
+import { boardModel } from '../public/board.js';
+import { testConnection, scanUiUrl, findPublishedScan } from './checkmarx.js';
 import { parseEnvText, settingsFromEnv, isSecretVariable } from './env-import.js';
 import * as assist from './assist.js';
 import { impactSettings } from '../public/impact.js';
@@ -133,6 +134,8 @@ function publicView(s, { admin = false } = {}) {
     ...rest,
     cx: admin ? { ...cx, url: cx?.projectId && !cx.demo ? scanUiUrl(cx.projectId, cx.scanId) : undefined } : scan,
     mode: isLive() ? 'live' : 'demo',
+    // Where these results come from, so the page can say so: the tenant, the scan, when it completed.
+    source: cx ? { live: !cx.demo, tenant: cx.demo ? '' : config.connection?.tenant ?? '', region: cx.demo ? '' : config.connection?.regionLabel ?? '', scan: cx.demo ? '' : String(cx.scanId ?? '').slice(0, 8), published: Boolean(cx.published) } : undefined,
     eventName: config.event.name,
     assistEnabled: config.assist.enabled,
     assistSimulated: !assistLive(),
@@ -265,7 +268,8 @@ app.post('/api/sessions', rateLimit(15, 60 * 60 * 1000, 'register'), wrap(async 
   // A sample with a recent scan is shown at once; anything else goes to the scan-profile step.
   // With the visitor's choice made on the same screen (the model), the scan starts at once.
   const reusable = value.sampleId && samples.reusable(samples.get(value.sampleId));
-  if (!(reusable && reuseSampleScan(session.id, reusable.sessionId))) {
+  if (reusable && reuseSampleScan(session.id, reusable.sessionId)) autoFix(session.id);
+  else {
     const choice = scanChoice(req.body?.scan);
     prepareScan(session.id).then((s) => { if (choice && s?.stage === 'profile') startScan(session.id, choice); }).catch((e) => console.warn(`Scan not started: ${e.message}`));
   }
@@ -381,6 +385,24 @@ app.post('/api/sessions/:id/assist/send', rateLimit(20, 60 * 60 * 1000, 'assist-
   res.json({ results, assist: updated.assist });
 }));
 
+/** The board brief, emailed to the visitor, the technical owner and the team. */
+app.post('/api/sessions/:id/board/send', rateLimit(10, 60 * 60 * 1000, 'board-send'), wrap(async (req, res) => {
+  const session = authorised(req, res);
+  if (!session) return;
+  if (session.stage !== 'complete') return res.status(409).json({ error: 'The results are not ready yet.' });
+  const p = req.body?.place && typeof req.body.place === 'object' ? { key: String(req.body.place.key ?? '').slice(0, 60), name: String(req.body.place.name ?? '').slice(0, 80), countryCode: String(req.body.place.countryCode ?? '').slice(0, 2) } : null;
+  const b = boardModel({ session: publicView(session), settings: impactSettings(config.impact), place: p, locale: String(req.body?.locale ?? '').slice(0, 20), appName: config.branding.appName });
+  const to = [...new Set([session.customer?.email, session.technical?.email, ...(session.team ?? []).map((t) => t.email)].filter(isEmail))].slice(0, 12);
+  if (!to.length) return res.status(400).json({ error: 'No address to send to.' });
+  const results = [];
+  for (const addr of to) {
+    try { await send(boardEmail({ to: addr, session, b })); results.push({ to: addr, ok: true }); }
+    catch (e) { results.push({ to: addr, ok: false, error: e.message }); }
+  }
+  audit({ type: 'assist', outcome: 'info', reason: `Board brief for ${session.repo.url} sent to ${to.join(', ')}` });
+  res.json({ results });
+}));
+
 // ---------------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------------
@@ -490,7 +512,11 @@ admin.delete('/cities/:city/photos/:n', (req, res) => {
 });
 
 // --- samples -----------------------------------------------------------------
-admin.get('/samples', (req, res) => res.json(samples.list()));
+admin.get('/samples', (req, res) => res.json(samples.list().map((x) => {
+  const runId = x.scanning?.sessionId ?? x.latest?.sessionId;
+  const run = runId && store.load(runId);
+  return { ...x, run: run ? { stage: run.stage, error: run.error ?? '', published: Boolean(run.cx?.published), scanId: run.cx?.scanId ?? '', project: run.cx?.projectName ?? '' } : null };
+})));
 admin.post('/samples', (req, res) => {
   const { sample, errors } = samples.create(req.body);
   if (errors) return res.status(400).json({ errors });
@@ -526,7 +552,25 @@ async function scanSample(sample, { force = false } = {}) {
   const running = sample.scanning?.sessionId && store.load(sample.scanning.sessionId);
   if (!force && running && !['complete', 'error'].includes(running.stage)) return running;
   const [, owner, name] = new URL(sample.url).pathname.split('/');
-  const session = newSession({ kind: 'sample-refresh', sampleId: sample.id, repo: { owner, repo: name, url: sample.url }, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } });
+  const base = { kind: 'sample-refresh', sampleId: sample.id, repo: { owner, repo: name, url: sample.url }, branch: sample.branch, customer: { name: 'Booth team', email: '', company: sample.name } };
+  // Live: results already published on the tenant are shown at once (Fusion scans first) …
+  if (isLive() && !force && !samples.reusable(sample)) {
+    try {
+      const found = await findPublishedScan({ projectName: sample.cxProject, repoUrl: sample.url });
+      if (found) {
+        const published = newSession(base);
+        samples.markScanning(sample.id, published.id);
+        await usePublishedScan(published.id, found);
+        console.log(`Sample ${sample.name}: published results of ${found.project.name} (scan ${found.scan.id.slice(0, 8)}) are ready.`);
+        const fresh = samples.get(sample.id);
+        if (!samples.needsScan(fresh)) return store.load(published.id);
+      }
+    } catch (err) {
+      console.warn(`Sample ${sample.name}: published results not read: ${err.message}`);
+    }
+  }
+  // … and a fresh scan runs on the tenant (or in the demo).
+  const session = newSession(base);
   samples.markScanning(sample.id, session.id);
   await prepareScan(session.id);
   startScan(session.id, {});

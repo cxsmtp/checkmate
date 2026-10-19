@@ -56,6 +56,8 @@ export function validate(input = {}) {
       branch,
       language: String(input.language ?? '').trim().slice(0, 60),
       description: String(input.description ?? '').trim().slice(0, 240),
+      // An existing Checkmarx One project whose published results to show (empty: found by repository URL).
+      cxProject: String(input.cxProject ?? '').trim().slice(0, 200),
       enabled: input.enabled !== false,
       order: Number.isFinite(Number(input.order)) ? Number(input.order) : 0,
     },
@@ -78,7 +80,7 @@ export function update(id, input) {
   const { value, errors } = validate({ ...existing, ...input });
   if (errors) return { errors };
   // A different repository or branch means earlier results no longer apply.
-  const same = value.url === existing.url && value.branch === existing.branch;
+  const same = value.url === existing.url && value.branch === existing.branch && value.cxProject === (existing.cxProject ?? '');
   Object.assign(existing, value, { latest: same ? existing.latest : undefined, scanning: same ? existing.scanning : undefined });
   write(all);
   return { sample: existing };

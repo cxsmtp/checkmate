@@ -61,7 +61,17 @@ export async function startMockCxOne({ scanPolls = 2, triagePolls = 1, remediati
     if (p === '/api/queries/presets') return json(res, 200, { presets: [{ id: 1, name: 'ASA Premium' }, { id: 2, name: 'OWASP Top 10 2021' }], totalCount: 2 });
 
     // --- projects / applications ---
-    if (p === '/api/projects' && req.method === 'GET') return json(res, 200, { projects: [], totalCount: 0, filteredTotalCount: 0 });
+    if (p === '/api/projects' && req.method === 'GET') {
+      // A project with a published Fusion scan on the sample repository (for "results already published").
+      if (url.searchParams.get('repo-url') === 'https://github.com/acme/published') return json(res, 200, { projects: [{ id: 'proj-published', name: 'team/published', repoUrl: 'https://github.com/acme/published' }], totalCount: 1 });
+      return json(res, 200, { projects: [], totalCount: 0, filteredTotalCount: 0 });
+    }
+    if (p === '/api/scans' && req.method === 'GET' && url.searchParams.get('project-id') === 'proj-published') {
+      return json(res, 200, { scans: [
+        { id: 'scan-old-nofusion', status: 'Completed', engines: ['sast', 'sca'], branch: 'main', createdAt: '2026-10-18T10:00:00Z', updatedAt: '2026-10-18T10:05:00Z' },
+        { id: state.scanId, status: 'Completed', engines: ['sast', 'sca', 'ai'], branch: 'main', createdAt: '2026-10-17T10:00:00Z', updatedAt: '2026-10-17T10:06:00Z' },
+      ], totalCount: 2 });
+    }
     if (p === '/api/projects' && req.method === 'POST') return json(res, 201, { id: state.projectId, name: body.name, repoUrl: body.repoUrl, mainBranch: body.mainBranch });
     if (p === '/api/applications' && req.method === 'GET') return json(res, 200, { applications: [], totalCount: 0 });
     if (p === '/api/applications' && req.method === 'POST') return json(res, 201, { id: state.appId, name: body.name, rules: body.rules });

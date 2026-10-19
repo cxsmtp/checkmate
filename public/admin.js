@@ -307,6 +307,7 @@ function sampleForm(sample, onDone) {
       h('label', { class: 'field' }, h('span', {}, 'GitHub URL'), h('input', { name: 'url', type: 'url', value: sample?.url ?? '', placeholder: 'https://github.com/org/repo', required: true })),
       h('label', { class: 'field' }, h('span', {}, 'Branch'), h('input', { name: 'branch', value: sample?.branch ?? '', placeholder: 'main' })),
       h('label', { class: 'field' }, h('span', {}, 'Language'), h('input', { name: 'language', value: sample?.language ?? '' })),
+      h('label', { class: 'field wide' }, h('span', {}, 'Checkmarx One project ', h('small', {}, 'optional: an existing project whose published results to show at once (Fusion scans first); empty = found by the repository URL')), h('input', { name: 'cxProject', value: sample?.cxProject ?? '', placeholder: 'e.g. cx-julian-chuan/juice-shop' })),
       h('label', { class: 'field wide' }, h('span', {}, 'Short description ', h('small', {}, 'shown to visitors')), h('input', { name: 'description', value: sample?.description ?? '', maxlength: 240 })),
       h('label', { class: 'check wide' }, h('input', { name: 'enabled', type: 'checkbox', checked: sample ? sample.enabled : true }), 'Show on the visitor page')),
     h('div', { class: 'row-actions', style: 'margin-top:14px' },
@@ -315,7 +316,7 @@ function sampleForm(sample, onDone) {
     m);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const body = Object.fromEntries(['name', 'url', 'branch', 'language', 'description'].map((k) => [k, form[k].value]));
+    const body = Object.fromEntries(['name', 'url', 'branch', 'language', 'description', 'cxProject'].map((k) => [k, form[k].value]));
     body.enabled = form.enabled.checked;
     try {
       await api(sample ? 'PUT' : 'POST', sample ? `/samples/${sample.id}` : '/samples', body);
@@ -341,7 +342,13 @@ async function samples() {
         h('td', {}, h('strong', {}, s.name), h('small', {}, s.url), s.language ? h('small', {}, s.language) : null),
         h('td', {}, s.branch || 'default'),
         h('td', {}, h('span', { class: `pill ${s.enabled ? 'ok' : ''}` }, s.enabled ? 'Yes' : 'Hidden')),
-        h('td', {}, s.scanning ? h('span', { class: 'pill' }, 'Scanning…') : null, s.latest ? h('span', { class: 'pill ok' }, `Ready · ${s.latest.live ? 'Checkmarx One' : 'demo'}`) : s.scanning ? null : h('span', { class: 'pill' }, 'Not scanned yet'), s.latest ? h('small', {}, fmt(s.latest.completedAt)) : null),
+        h('td', {},
+          s.latest ? h('span', { class: 'pill ok' }, `Ready · ${s.latest.live ? 'Checkmarx One' : 'demo'}`) : null,
+          s.run && !['complete', 'error'].includes(s.run.stage) ? h('span', { class: 'pill' }, s.run.published ? 'Reading published results…' : 'Scanning…') : null,
+          s.run?.stage === 'error' ? h('span', { class: 'pill bad', title: s.run.error }, 'Last scan failed') : null,
+          !s.latest && !s.run ? h('span', { class: 'pill' }, 'Not scanned yet') : null,
+          s.latest ? h('small', {}, `${fmt(s.latest.completedAt)}${s.run?.project ? ` · ${s.run.project}` : ''}`) : null,
+          s.run?.stage === 'error' ? h('small', { class: 'danger' }, s.run.error) : null),
         h('td', {}, h('div', { class: 'row-actions' },
           h('button', { class: 'link', onclick: busy(async () => {
             try {
@@ -520,18 +527,19 @@ const SECTIONS = [
   { id: 'assist', title: 'AI Triage & Remediation', intro: 'The one-click close of the loop on the outcome page: AI Triage (POST /api/ai-triage/triage, verdicts read back per vulnerability group) and AI Remediation (POST /api/remediation/remediate, fixes read from remediation-details). Simulated by default: the same stages run on the real scan findings without calling Checkmarx One AI. Switch Mode to Live to triage and fix for real (spends the tenant\'s AI credits).', fields: [
     ['assist.mode', 'Mode', { options: [['simulated', 'Simulated — the same steps on the real findings, no AI credits spent'], ['live', 'Live — Checkmarx One AI Triage and AI Remediation (spends AI credits)']] }],
     ['assist.enabled', 'Show Triage with AI and Remediate with AI on the outcome page', { checkbox: true }],
+    ['assist.autoRun', 'Run AI Triage and AI Remediation on the Fusion findings by themselves when the results arrive (the outcome and the board report arrive complete)', { checkbox: true }],
     ['assist.pollIntervalMs', 'Poll interval (ms)', { type: 'number' }],
     ['assist.timeoutMs', 'Time limit per run (ms)', { type: 'number' }],
   ] },
-  { id: 'impact', title: 'Business impact', intro: 'The Business impact tab on the outcome page: what triaging and fixing the findings with Checkmarx One AI saves, in the visitor\'s currency (their city: Dubai AED, New York and Boston USD, Singapore SGD, Melbourne AUD). The arithmetic of CxMissionZero\'s Impact page and Cx Credits Calculator: hours by hand × a fully loaded hourly rate, plus the extra cost of the same fixes after release, less the credits when a credit price is set.', fields: [
+  { id: 'impact', title: 'Business impact', intro: 'What triaging and fixing the findings with Checkmarx One AI saves, on the outcome page and the board report. The arithmetic of CxMissionZero\'s Impact page and Cx Credits Calculator: hours by hand × the engineering rate, plus the extra cost of the same fixes after release, less the credits at the credit price. Default: USD 25 an hour, USD 1 a credit; 1 credit per triage, 3 per fix.', fields: [
     ['impact.enabled', 'Show Business impact on the outcome page', { checkbox: true }],
     ['impact.triageMinutes', 'Minutes to triage a finding by hand', { type: 'number' }],
     ['impact.fixMinutes', 'Minutes to fix a finding by hand', { type: 'number' }],
     ['impact.fpPercent', 'False positives assumed before AI Triage runs (%)', { type: 'number' }],
     ['impact.releaseMultiplier', 'A fix after release costs (× the fix before)', { type: 'number' }],
-    ['impact.hourlyRate', 'Fully loaded engineering hour', { type: 'number', hint: '0: the region\'s rate (USD 110, AED 250, SGD 90, AUD 100, EUR 85, GBP 80 …)' }],
-    ['impact.currency', 'Currency', { placeholder: 'empty: the visitor\'s region', hint: 'three letters, e.g. AED — one currency for every visitor' }],
-    ['impact.creditPrice', 'Price of one Checkmarx One credit', { type: 'number', hint: '0: credits are counted, not priced' }],
+    ['impact.rates', 'Rates by region', { rates: true, hint: 'an engineering hour and one Checkmarx One credit, per currency; a visitor from a region with its own row sees that currency, everyone else the first row' }],
+    ['impact.triageCredits', 'Credits per finding triaged (AI Triage)', { type: 'number' }],
+    ['impact.remediationCredits', 'Credits per finding fixed (AI Remediation)', { type: 'number' }],
     ['impact.fusionCreditsPer10k', 'Fusion credits per 10K lines of code', { type: 'number', hint: '0: Fusion scan credits left out' }],
   ] },
   { id: 'profiles', title: 'Visitors, samples & cities', intro: 'How visitors find themselves, the sample repositories offered to those without one, and the city photography.', fields: [
@@ -579,6 +587,21 @@ async function settings() {
     const v = s[key];
     if (opt.options) return h('label', { class: 'field' }, h('span', {}, label), h('select', { name: key }, opt.options.map(([val, text]) => h('option', { value: val, selected: v === val }, text))));
     if (opt.checkbox) return h('label', { class: 'check' }, h('input', { type: 'checkbox', name: key, checked: Boolean(v) }), label);
+    if (opt.rates) {
+      const rows = (Array.isArray(v) && v.length ? v : [{ currency: 'USD', hourly: 25, credit: 1 }]).map((r) => ({ ...r }));
+      const body = h('tbody');
+      const draw = () => body.replaceChildren(...rows.map((r, i) => h('tr', {},
+        h('td', {}, h('input', { value: r.currency, maxlength: 3, placeholder: 'USD', style: 'width:80px;text-transform:uppercase', oninput: (e) => { r.currency = e.target.value.toUpperCase(); } })),
+        h('td', {}, h('input', { type: 'number', min: 0, step: 'any', value: r.hourly, style: 'width:120px', oninput: (e) => { r.hourly = Number(e.target.value); } })),
+        h('td', {}, h('input', { type: 'number', min: 0, step: 'any', value: r.credit, style: 'width:120px', oninput: (e) => { r.credit = Number(e.target.value); } })),
+        h('td', {}, rows.length > 1 ? h('button', { type: 'button', class: 'link danger', onclick: () => { rows.splice(i, 1); draw(); } }, 'Remove') : null))));
+      draw();
+      const box = h('fieldset', { class: 'field span2 rates-field', 'data-key': key }, h('legend', {}, label, opt.hint ? h('small', {}, ' · ', opt.hint) : null),
+        h('table', { class: 'table compact' }, h('thead', {}, h('tr', {}, ['Currency', 'Engineer, per hour', 'One credit', ''].map((t) => h('th', {}, t)))), body),
+        h('button', { type: 'button', class: 'ghost sm', onclick: () => { rows.push({ currency: '', hourly: 25, credit: 1 }); draw(); } }, '+ Add a currency'));
+      box.rows = rows;
+      return box;
+    }
     if (opt.engines) return h('fieldset', { class: 'field span2 engines-field', 'data-key': key }, h('legend', {}, label, opt.hint ? h('small', {}, ' · ', opt.hint) : null),
       h('div', { class: 'checks' }, ENGINE_CHOICES.map(([k, t]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', 'data-engine': k, checked: (v ?? []).includes(k) }), t))));
     if (opt.secret) return h('label', { class: `field ${opt.span ? 'span2' : ''}` }, h('span', {}, label, ' ', h('span', { class: 'secret-state' }, v?.set ? '(set — leave empty to keep)' : '(not set)'), opt.hint ? h('small', {}, ' · ', opt.hint) : null), h('input', { name: key, type: 'password', autocomplete: 'new-password', placeholder: v?.set ? '••••••••' : '' }));
@@ -654,6 +677,7 @@ async function settings() {
     const patch = {};
     for (const sec of SECTIONS) {
       for (const [key, , opt = {}] of sec.fields) {
+        if (opt.rates) { patch[key] = JSON.stringify(form.querySelector(`[data-key="${key}"]`).rows.filter((r) => r.currency)); continue; }
         if (opt.engines) { patch[key] = [...form.querySelectorAll(`[data-key="${key}"] [data-engine]`)].filter((i) => i.checked).map((i) => i.dataset.engine).join(','); continue; }
         const el = form.elements[key];
         if (!el) continue;
