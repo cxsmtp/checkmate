@@ -1,44 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeImpact, regionFor, impactSettings, formatMoney, formatCompact, REGIONAL_RATES } from '../public/impact.js';
+import { computeImpact, regionFor, impactSettings, formatMoney, formatCompact } from '../public/impact.js';
 
 const finding = (id, severity = 'HIGH') => ({ id, severity });
 const four = [finding('a', 'CRITICAL'), finding('b'), finding('c'), finding('d', 'MEDIUM')];
 
-test('the region follows the city, then the browser, then an administrator', () => {
-  assert.equal(regionFor('dubai').currency, 'AED');
-  assert.equal(regionFor('singapore').currency, 'SGD');
-  assert.equal(regionFor('melbourne').currency, 'AUD');
-  assert.equal(regionFor('new-york').currency, 'USD');
-  assert.equal(regionFor(null, 'en-GB').currency, 'GBP');
-  assert.equal(regionFor(null, 'de-DE').currency, 'EUR');
-  assert.equal(regionFor(null, 'xx').currency, 'USD');
-  assert.equal(regionFor('dubai', '', { currency: 'usd' }).currency, 'USD');
+const RATES = [{ currency: 'USD', hourly: 25, credit: 1 }, { currency: 'AED', hourly: 92, credit: 3.67 }, { currency: 'SGD', hourly: 34, credit: 1.35 }];
+
+test('the region picks its own rate row; anyone else gets the first (USD 25 an hour, USD 1 a credit by default)', () => {
+  assert.deepEqual([regionFor('dubai').currency, regionFor('dubai').hourly, regionFor('dubai').credit], ['USD', 25, 1], 'default: one USD row for everyone');
+  const s = { rates: RATES };
+  assert.equal(regionFor('dubai', '', s).currency, 'AED');
+  assert.equal(regionFor('dubai', '', s).hourly, 92);
+  assert.equal(regionFor('singapore', '', s).credit, 1.35);
+  assert.equal(regionFor('melbourne', '', s).currency, 'USD', 'no AUD row: the first row');
+  assert.equal(regionFor(null, 'en-SG', s).currency, 'SGD');
+  assert.equal(regionFor({ key: 'abu-dhabi-ae', name: 'Abu Dhabi', countryCode: 'AE' }, '', s).currency, 'AED');
+  assert.equal(regionFor({ key: 'riyadh-sa', name: 'Riyadh', countryCode: 'SA' }, '', s).label, 'Riyadh');
 });
 
-test('MZ arithmetic: hours by hand at the regional rate, the release multiple, 1 + 3 credits', () => {
+test('MZ arithmetic at the default rates: hours by hand × USD 25, the release multiple, 1 + 3 credits at USD 1', () => {
   const im = computeImpact({ findings: four, region: regionFor('dubai') });
   // 4 × 20 min triage; 4 × 70% real × 120 min fix
   assert.equal(im.hours.triage, 1.3);
   assert.equal(im.hours.fix, 5.6);
-  assert.equal(im.rate, REGIONAL_RATES.AED);
-  assert.equal(im.money.timeValue, Math.round((80 / 60 + 5.6) * 250));
-  assert.equal(im.money.avoided, Math.round(5.6 * 250 * 5));
-  assert.equal(im.money.cost, null, 'credits not priced by default');
-  assert.equal(im.money.net, im.money.gross);
+  assert.equal(im.rate, 25);
+  assert.equal(im.money.timeValue, Math.round((80 / 60 + 5.6) * 25));
+  assert.equal(im.money.avoided, Math.round(5.6 * 25 * 5));
   assert.deepEqual([im.credits.triage, im.credits.remediation, im.credits.fusion], [4, 9, 0]);
+  assert.equal(im.money.cost, 13, '13 credits × USD 1');
+  assert.equal(im.money.net, im.money.gross - 13);
+  assert.ok(im.roi > 10);
 });
 
-test('AI Triage verdicts replace the assumed false positives; credits priced and Fusion LOC counted when set', () => {
+test('AI Triage verdicts replace the assumed false positives; credits per step and Fusion LOC as set', () => {
   const verdicts = { a: { verdict: 'VULNERABLE' }, b: { verdict: 'NOT_EXPLOITABLE' }, c: { verdict: 'PROPOSED_NOT_EXPLOITABLE' }, d: { verdict: 'CONFIRMED' } };
-  const im = computeImpact({ findings: four, verdicts, loc: 23456, settings: { creditPrice: 2, fusionCreditsPer10k: 10, hourlyRate: 100 }, region: regionFor('boston') });
+  const settings = { rates: RATES, fusionCreditsPer10k: 10, triageCredits: 2, remediationCredits: 5 };
+  const im = computeImpact({ findings: four, verdicts, loc: 23456, settings, region: regionFor('dubai', '', settings) });
   assert.equal(im.truePositives, 2);
   assert.equal(im.triaged, 4);
   assert.equal(im.credits.fusion, 30, '3 units of 10K lines × 10');
-  assert.equal(im.credits.total, 4 + 6 + 30);
-  assert.equal(im.money.cost, 80);
-  assert.equal(im.rateFrom, 'admin');
-  assert.equal(im.money.net, im.money.gross - 80);
+  assert.equal(im.credits.total, 8 + 10 + 30);
+  assert.equal(im.money.cost, Math.round(48 * 3.67));
+  assert.equal(im.rate, 92);
+  assert.equal(im.currency, 'AED');
 });
 
 test('repositories like this one scale every figure', () => {
@@ -74,10 +79,8 @@ test('every Fusion-only finding carries why the rules missed it and why Fusion f
   assert.match(fusionOnly[0].explanation.whyCaught, /In Fusion's words: The id comes from the URL\./);
 });
 
-test('any city: the currency follows its country; an unknown rate falls back to US dollars', () => {
-  assert.equal(regionFor({ key: 'mumbai-in', name: 'Mumbai', countryCode: 'IN' }).currency, 'INR');
-  assert.equal(regionFor({ key: 'berlin-de', name: 'Berlin', countryCode: 'DE' }).currency, 'EUR');
-  assert.equal(regionFor({ key: 'riyadh-sa', name: 'Riyadh', countryCode: 'SA' }).label, 'Riyadh');
-  assert.equal(regionFor({ key: 'reykjavik-is', name: 'Reykjavik', countryCode: 'IS' }).currency, 'USD');
-  assert.equal(regionFor({ key: 'x', countryCode: 'IS' }, '', { currency: 'ISK', hourlyRate: 15000 }).currency, 'ISK');
+test('rate rows are cleaned: bad or repeated currencies dropped, never empty', async () => {
+  const { cleanRates } = await import('../public/impact.js');
+  assert.deepEqual(cleanRates([{ currency: 'aed', hourly: 92, credit: 3.67 }, { currency: 'AED', hourly: 1, credit: 1 }, { currency: 'XX', hourly: 1, credit: 1 }, { currency: 'EUR', hourly: -1, credit: 1 }]), [{ currency: 'AED', hourly: 92, credit: 3.67 }]);
+  assert.deepEqual(cleanRates([]), [{ currency: 'USD', hourly: 25, credit: 1 }]);
 });

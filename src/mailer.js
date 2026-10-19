@@ -131,3 +131,31 @@ ${b.prUrl ? `<p style="margin:0 0 6px"><a href="${escape(b.prUrl)}">Open the pul
 <p><a href="${escape(link)}" style="display:inline-block;padding:10px 18px;background:${escape(config.branding.accentColor || '#5b2be0')};color:#fff;border-radius:6px;text-decoration:none">Open the full results</a></p>${foot()}`;
   return { to, subject, text, html };
 }
+
+/** The board brief (public/board.js), as an email: the same page, in table layout for mail clients. */
+export function boardEmail({ to, session, b }) {
+  const link = resultsLink(session);
+  const subject = `Board brief: ${b.company} — ${b.repo} secured against AI-era unknowns (${config.event.name})`;
+  const kpis = b.kpis.map((k, i) => `<td style="width:25%;padding:10px;border:1px solid #e3e1ee;border-radius:8px;vertical-align:top;${i === 3 ? 'background:#1d5a38;color:#fff' : ''}"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.8">${escape(k.label)}</div><div style="font-size:24px;font-weight:700;margin:4px 0">${escape(k.value)}</div><div style="font-size:12px;opacity:.8">${escape(k.note)}</div></td>`).join('');
+  const text = [
+    b.headline, '',
+    ...b.kpis.map((k) => `${k.label}: ${k.value} (${k.note})`), '',
+    'Why it matters now:', ...b.why.map((w) => `- ${w}`), '',
+    `Exposure: ${b.exposure.before} (${b.exposure.beforeBand}) → ${b.exposure.after} (${b.exposure.afterBand}) after AI fixes.`,
+    `Cost: ${b.cost.hours} engineering hours saved; ${b.cost.credits} Checkmarx One credits (${b.cost.creditCost}); net saving ${b.cost.net}${b.cost.roi ? ` (${b.cost.roi}× return)` : ''}.`, '',
+    'Process:', ...b.process.map((p) => `- ${p.step}: ${p.what}`), '',
+    'Recommendations:', ...b.recommendations.map((r, i) => `${i + 1}. ${r}`), '',
+    `Full results: ${link}`,
+  ].join('\n');
+  const html = `${head(`Board brief · ${b.company}`)}
+<p style="font-size:17px;line-height:1.4"><strong>${escape(b.headline)}</strong></p>
+<table role="presentation" style="width:100%;border-collapse:separate;border-spacing:6px;margin:8px -6px"><tr>${kpis}</tr></table>
+<h3 style="margin:18px 0 6px">Why it matters now</h3><ul style="padding-left:18px;margin:0">${b.why.map((w) => `<li style="margin:4px 0">${escape(w)}</li>`).join('')}</ul>
+<h3 style="margin:18px 0 6px">Exposure</h3><p style="margin:0">${b.exposure.before} (${escape(b.exposure.beforeBand)}) → <strong>${b.exposure.after} (${escape(b.exposure.afterBand)})</strong> after AI fixes.</p>
+<h3 style="margin:18px 0 6px">Cost effectiveness</h3><p style="margin:0">${escape(String(b.cost.hours))} engineering hours saved at ${escape(b.cost.rate)}/h · value ${escape(b.cost.gross)} · ${b.cost.credits} credits (${escape(b.cost.creditCost)}) · <strong>net ${escape(b.cost.net)}${b.cost.roi ? ` · ${b.cost.roi}× return` : ''}</strong></p>
+<h3 style="margin:18px 0 6px">The process${b.minutes ? ` · ${b.minutes} minute${b.minutes === 1 ? '' : 's'} end to end` : ''}</h3><ol style="padding-left:18px;margin:0">${b.process.map((p) => `<li style="margin:3px 0"><strong>${escape(p.step)}</strong> — ${escape(p.what)}</li>`).join('')}</ol>
+<h3 style="margin:18px 0 6px">Recommendations to the board</h3><ol style="padding-left:18px;margin:0">${b.recommendations.map((r) => `<li style="margin:4px 0">${escape(r)}</li>`).join('')}</ol>
+<p style="font-size:12px;color:#67687e;margin-top:14px">Prepared by ${escape(b.appName)} on Checkmarx One${b.tenant ? ` · tenant ${escape(b.tenant)}` : ''}${b.scan ? ` · scan ${escape(b.scan)}` : ''} · ${b.live ? 'live results' : 'demo results'}.</p>
+<p><a href="${escape(link)}" style="display:inline-block;padding:10px 18px;background:${escape(config.branding.accentColor || '#5b2be0')};color:#fff;border-radius:6px;text-decoration:none">Open the full results</a></p>${foot()}`;
+  return { to, subject, text, html };
+}

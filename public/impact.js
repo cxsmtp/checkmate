@@ -3,42 +3,33 @@
 // outcome page (public/app.js) and the tests:
 //
 //   time saved   = findings × minutes to triage by hand + real findings × minutes to fix by hand,
-//                  valued at the region's fully loaded engineering hour;
+//                  valued at the region's engineering hour (the administrator's rates table);
 //   avoided      = what the real findings would have cost to fix after release: the same fix,
 //                  `releaseMultiplier` times over (minus the fix itself, already counted above);
 //   credits      = 1 per finding triaged, 3 per finding remediated, plus the Fusion scan
-//                  (whole 10K-line units × credits per 10K LOC); priced only when a credit price is set.
+//                  (whole 10K-line units × credits per 10K LOC), at the region's credit price.
 //
 // Real findings: AI Triage's verdicts when it has run on them, otherwise the false-positive share
 // the calculator assumes (30%). Every figure comes with the assumptions it used.
 
-export const TRIAGE_CREDITS = 1;
-export const REMEDIATION_CREDITS = 3;
 export const UNIT_LOC = 10000;
 export const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
+
+/**
+ * What an engineering hour and a Checkmarx One credit cost, per currency: set by the administrator
+ * (Admin → Settings → Business impact). A visitor whose region has a row sees its currency; anyone
+ * else sees the first row. Default: USD 25 an hour, USD 1 a credit.
+ */
+export const DEFAULT_RATES = Object.freeze([{ currency: 'USD', hourly: 25, credit: 1 }]);
 
 export const IMPACT_DEFAULTS = Object.freeze({
   triageMinutes: 20,
   fixMinutes: 120,
   fpPercent: 30,
   releaseMultiplier: 6,
-  hourlyRate: 0, // 0: the region's rate below
-  currency: '', // '': the region's currency
-  creditPrice: 0, // 0: credits are counted, not priced
+  triageCredits: 1,
+  remediationCredits: 3,
   fusionCreditsPer10k: 0,
-});
-
-/**
- * Fully loaded cost of one engineering hour (salary, benefits, overhead) by currency, rounded:
- * conservative mid-market figures, editable in the admin panel.
- */
-export const REGIONAL_RATES = Object.freeze({
-  USD: 110, AED: 250, SAR: 250, QAR: 250, SGD: 90, AUD: 100, NZD: 95, EUR: 85, GBP: 80, CHF: 120,
-  CAD: 105, INR: 2000, JPY: 7000, KRW: 70000, HKD: 450, ILS: 300, ZAR: 650, BRL: 180, MXN: 700,
-  SEK: 750, NOK: 750, DKK: 600, PLN: 200, CNY: 300, TWD: 1500, THB: 1200, MYR: 150, IDR: 450000,
-  PHP: 1500, VND: 700000, PKR: 6000, BDT: 3000, LKR: 6000, EGP: 1200, NGN: 25000, KES: 3500, TRY: 1200,
-  CZK: 1100, HUF: 14000, RON: 200, KWD: 20, BHD: 25, OMR: 25, JOD: 30, ARS: 25000, CLP: 30000,
-  COP: 120000, PEN: 120, MAD: 300,
 });
 
 /** Each booth city's currency. Amounts are written in en-US so a currency is never ambiguous (SGD 9,000, A$9,000, AED 9,000, not "$"). */
@@ -60,22 +51,36 @@ const COUNTRY_CURRENCY = {
   BH: 'BHD', OM: 'OMR', JO: 'JOD', AR: 'ARS', CL: 'CLP', CO: 'COP', PE: 'PEN', MA: 'MAD',
 };
 
+/** The rate rows, cleaned: [{ currency, hourly, credit }], never empty. */
+export function cleanRates(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    const currency = String(r?.currency ?? '').trim().toUpperCase();
+    const hourly = Number(r?.hourly);
+    const credit = Number(r?.credit);
+    if (!/^[A-Z]{3}$/.test(currency) || seen.has(currency) || !(hourly >= 0) || !(credit >= 0)) continue;
+    seen.add(currency);
+    out.push({ currency, hourly, credit });
+  }
+  return out.length ? out : DEFAULT_RATES.map((r) => ({ ...r }));
+}
+
 /**
- * The region the amounts are for: the visitor's city (a drawn city, or any city with its country),
- * else the browser's country (en-GB → GBP), else US dollars. An administrator's currency wins. A
- * currency without a regional rate (and no rate set by the administrator) is shown in US dollars.
+ * The region the amounts are for, and its rates: the visitor's city (a drawn city, or any city with
+ * its country), else the browser's country (en-GB → GBP). When the administrator has a rate row for
+ * that currency it is used; otherwise the first row (by default USD 25 an hour, USD 1 a credit).
  * `place`: a city key ("dubai") or { key, name, countryCode }.
  */
 export function regionFor(place, locale = '', settings = {}) {
-  const fixed = String(settings.currency ?? '').trim().toUpperCase();
+  const rates = cleanRates(settings.rates);
   const key = typeof place === 'string' ? place : place?.key;
   const city = CITY_REGIONS[key];
   const country = typeof place === 'object' && place ? String(place.countryCode ?? '').toUpperCase() : '';
-  let currency = city?.currency ?? COUNTRY_CURRENCY[country] ?? COUNTRY_CURRENCY[String(locale).split(/[-_]/)[1]?.toUpperCase()] ?? 'USD';
-  if (/^[A-Z]{3}$/.test(fixed)) currency = fixed;
-  else if (!REGIONAL_RATES[currency] && !(Number(settings.hourlyRate) > 0)) currency = 'USD';
+  const local = city?.currency ?? COUNTRY_CURRENCY[country] ?? COUNTRY_CURRENCY[String(locale).split(/[-_]/)[1]?.toUpperCase()] ?? 'USD';
+  const row = rates.find((r) => r.currency === local) ?? rates[0];
   const label = city?.label ?? (typeof place === 'object' && place ? place.name || place.country || '' : '');
-  return { currency, locale: 'en-US', label };
+  return { currency: row.currency, locale: 'en-US', label, hourly: row.hourly, credit: row.credit, regional: row.currency === local };
 }
 
 const num = (v, fallback) => (Number.isFinite(Number(v)) && Number(v) >= 0 && v !== '' && v !== null ? Number(v) : fallback);
@@ -89,10 +94,10 @@ export function impactSettings(value = {}) {
     fixMinutes: num(v.fixMinutes, d.fixMinutes),
     fpPercent: Math.min(100, num(v.fpPercent, d.fpPercent)),
     releaseMultiplier: Math.max(1, num(v.releaseMultiplier, d.releaseMultiplier)),
-    hourlyRate: num(v.hourlyRate, 0),
-    currency: String(v.currency ?? '').trim().toUpperCase(),
-    creditPrice: num(v.creditPrice, 0),
+    triageCredits: num(v.triageCredits, d.triageCredits),
+    remediationCredits: num(v.remediationCredits, d.remediationCredits),
     fusionCreditsPer10k: num(v.fusionCreditsPer10k, 0),
+    rates: cleanRates(v.rates),
   };
 }
 
@@ -105,9 +110,11 @@ const round = (n, d = 0) => Math.round(n * 10 ** d) / 10 ** d;
  * `verdicts`: AI Triage items by finding id ({verdict}); `loc`: lines of code scanned;
  * `repos`: how many repositories like this one to project for (1 = this one).
  */
-export function computeImpact({ findings = [], verdicts = {}, loc = null, repos = 1, settings = {}, region = { currency: 'USD', locale: 'en-US' } } = {}) {
+export function computeImpact({ findings = [], verdicts = {}, loc = null, repos = 1, settings = {}, region = null } = {}) {
   const s = impactSettings(settings);
-  const rate = s.hourlyRate || REGIONAL_RATES[region.currency] || REGIONAL_RATES.USD;
+  const r = region?.hourly !== undefined ? region : regionFor(region?.currency ?? 'USD', '', s);
+  const rate = r.hourly;
+  const creditPrice = r.credit;
   const list = findings.filter((f) => SEVERITIES.includes(f.severity));
   // Real findings: the verdict when AI Triage gave one, the assumed share otherwise.
   let triaged = 0;
@@ -131,20 +138,21 @@ export function computeImpact({ findings = [], verdicts = {}, loc = null, repos 
 
   const units = Number(loc) > 0 ? Math.ceil(Number(loc) / UNIT_LOC) : 0;
   const credits = {
-    triage: list.length * TRIAGE_CREDITS * scale,
-    remediation: Math.ceil(truePositives) * REMEDIATION_CREDITS * scale,
+    triage: list.length * s.triageCredits * scale,
+    remediation: Math.ceil(truePositives) * s.remediationCredits * scale,
     fusion: units && s.fusionCreditsPer10k ? units * s.fusionCreditsPer10k * scale : 0,
   };
   credits.total = credits.triage + credits.remediation + credits.fusion;
-  const cost = s.creditPrice > 0 ? credits.total * s.creditPrice : null;
+  const cost = creditPrice > 0 ? credits.total * creditPrice : null;
   const gross = timeValue + avoided;
   const net = cost === null ? gross : gross - cost;
 
   return {
-    currency: region.currency,
-    locale: region.locale,
+    currency: r.currency,
+    locale: r.locale ?? 'en-US',
     rate,
-    rateFrom: s.hourlyRate ? 'admin' : 'region',
+    creditPrice,
+    regional: r.regional,
     settings: s,
     repos: scale,
     findings: list.length,

@@ -122,6 +122,8 @@ export const SETTINGS = {
   'assist.enabled': { env: 'ASSIST_ENABLED', default: true, type: 'boolean' },
   // simulated: the same stages on the real findings, no AI credits spent; live: Checkmarx One AI Triage and Remediation.
   'assist.mode': { env: 'ASSIST_MODE', default: 'simulated', options: ['simulated', 'live'] },
+  // The outcome arrives complete: AI Triage then AI Remediation run on the Fusion findings by themselves.
+  'assist.autoRun': { env: 'ASSIST_AUTO_RUN', default: true, type: 'boolean' },
   'assist.pollIntervalMs': { env: 'ASSIST_POLL_INTERVAL_MS', default: 8000, type: 'number' },
   'assist.timeoutMs': { env: 'ASSIST_TIMEOUT_MS', default: 30 * 60 * 1000, type: 'number' },
 
@@ -131,11 +133,10 @@ export const SETTINGS = {
   'impact.fixMinutes': { env: 'IMPACT_FIX_MINUTES', default: 120, type: 'number' },
   'impact.fpPercent': { env: 'IMPACT_FP_PERCENT', default: 30, type: 'number' },
   'impact.releaseMultiplier': { env: 'IMPACT_RELEASE_MULTIPLIER', default: 6, type: 'number' },
-  // 0 / empty: the region's fully loaded hourly rate and currency (the visitor's city)
-  'impact.hourlyRate': { env: 'IMPACT_HOURLY_RATE', default: 0, type: 'number' },
-  'impact.currency': { env: 'IMPACT_CURRENCY', default: '', type: 'currency' },
-  // 0: credits are counted, not priced
-  'impact.creditPrice': { env: 'IMPACT_CREDIT_PRICE', default: 0, type: 'number' },
+  // What an engineering hour and a credit cost, per currency (the visitor's region picks its row; else the first)
+  'impact.rates': { env: 'IMPACT_RATES', default: [{ currency: 'USD', hourly: 25, credit: 1 }], type: 'json' },
+  'impact.triageCredits': { env: 'IMPACT_TRIAGE_CREDITS', default: 1, type: 'number' },
+  'impact.remediationCredits': { env: 'IMPACT_REMEDIATION_CREDITS', default: 3, type: 'number' },
   'impact.fusionCreditsPer10k': { env: 'IMPACT_FUSION_CREDITS_PER_10K', default: 0, type: 'number' },
 
   // Real city photography (Wikimedia Commons, Creative Commons / public domain) fetched at start when missing

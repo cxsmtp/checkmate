@@ -83,10 +83,11 @@ jobs:
           curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"fusion\":true,\"llmModel\":\"opus-5.5\"}" "http://127.0.0.1:3333/api/sessions/$SID/start" | grep -q '"stage":"queued"'
           for i in $(seq 1 40); do curl -sf "http://127.0.0.1:3333$URL" | grep -q '"stage":"complete"' && break; sleep 2; done
           curl -sf "http://127.0.0.1:3333$URL" | grep -q '"fusionOnly":\['
-          # One click triages the Fusion-only findings with AI (demo: the same stages against a simulation).
-          curl -sf -H 'Content-Type: application/json' -d "{\"k\":\"$KEY\",\"scope\":\"fusion\"}" "http://127.0.0.1:3333/api/sessions/$SID/assist/triage" | grep -q '"status":"running"'
+          # The outcome completes itself: AI Triage, then AI Remediation, on the Fusion-only findings.
           for i in $(seq 1 30); do curl -sf "http://127.0.0.1:3333$URL" | grep -q '"vulnerable":' && break; sleep 2; done
           curl -sf "http://127.0.0.1:3333$URL" | grep -q '"vulnerable":4'
+          for i in $(seq 1 40); do curl -sf "http://127.0.0.1:3333$URL" | grep -q '"fixed":4' && break; sleep 2; done
+          curl -sf "http://127.0.0.1:3333$URL" | grep -q '"fixed":4'
           # Stops cleanly through tini.
           docker stop cm > /dev/null
           docker logs cm 2>&1 | grep -q 'Stopped cleanly'
