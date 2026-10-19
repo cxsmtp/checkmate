@@ -46,7 +46,7 @@ services:
       # Updates: new releases from the repository's main branch install by themselves when on.
       AUTO_UPDATE: ${AUTO_UPDATE:-on}
       UPDATE_CHECK_MINUTES: ${UPDATE_CHECK_MINUTES:-5}
-      # The repository is private: a token that can read its packages and attestations.
+      # Only while the image package is private: a token that can read it and its attestations.
       UPDATE_REGISTRY_TOKEN: ${UPDATE_REGISTRY_TOKEN:-}
       GITHUB_READ_TOKEN: ${GITHUB_READ_TOKEN:-}
       TRUST_PROXY: ${TRUST_PROXY:-loopback}           # set to your reverse proxy's address when behind one

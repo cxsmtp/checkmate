@@ -94,7 +94,7 @@ Ported from CxMissionZero (`src/integrity/`, `src/updates/`, `src/launch.js`):
 
 - Every push to `main` builds, smoke-tests and publishes `ghcr.io/cxsmtp/checkmate:<1.0.N>`, `:latest`; `integrity.json` (SHA-256 of every file) and the image are signed with a GitHub build attestation (Sigstore). A running container with `AUTO_UPDATE=on` checks every 5 minutes, downloads only the app layers, verifies every file against the signed list, switches without a restart and rolls back by itself if the new version does not come up.
 - Hardened container: read-only root, no capabilities, `no-new-privileges`, non-root, `tini`. Strict CSP, rate limiting, `HttpOnly`/`SameSite=Strict` admin sessions, scrypt, unguessable result links, append-only activity log.
-- **Private repository:** GitHub only issues build attestations for private repositories on GitHub Enterprise Cloud; the publish job warns and skips signing, and containers report *Not signed by the release workflow* and refuse updates. Make the repository public or use Enterprise Cloud. A private image also needs `UPDATE_REGISTRY_TOKEN` / `GITHUB_READ_TOKEN` (`read:packages`).
+- **Public repository:** the repository is public, so GitHub signs every release and containers verify it. (On a private repository GitHub issues build attestations only on Enterprise Cloud; the publish job then warns and skips signing, and containers refuse unsigned updates.) The image itself must be public too for a booth to pull it without a token: GitHub → Packages → `checkmate` → Package settings → *Change visibility*; otherwise set `UPDATE_REGISTRY_TOKEN` / `GITHUB_READ_TOKEN` (`read:packages`).
 
 ## Settings reference
 
