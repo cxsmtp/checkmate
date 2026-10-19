@@ -49,7 +49,7 @@ sudo systemctl enable --now podman-auto-update.timer
 sudo podman logs checkmate
 ```
 
-Another port: change `PublishPort=3333:3000` in `checkmate.container` and `reverse_proxy 127.0.0.1:3333` in the Caddyfile, then `systemctl daemon-reload && systemctl restart checkmate caddy`.
+Another port: change `PublishPort=3333:3333` (both sides, or set `PORT` in the env file for the inside) in `checkmate.container` and `reverse_proxy 127.0.0.1:3333` in the Caddyfile, then `systemctl daemon-reload && systemctl restart checkmate caddy`.
 
 ## 4. Configure the booth (in the browser)
 

@@ -10,7 +10,7 @@ services:
     # Reachable from this machine only by default. For the event, set BIND_ADDRESS=0.0.0.0
     # (ideally behind a reverse proxy that serves HTTPS).
     ports:
-      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3333}:3000"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3333}:3333"
     volumes:
       - type: volume
         source: checkmate-data

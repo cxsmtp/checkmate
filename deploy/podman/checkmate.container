@@ -14,7 +14,7 @@ After=network-online.target
 [Container]
 ContainerName=checkmate
 Image=ghcr.io/cxsmtp/checkmate:latest
-PublishPort=3333:3000
+PublishPort=3333:3333
 Volume=checkmate-data:/data
 # Settings and tokens (copy checkmate.env.example; keep it chmod 600).
 EnvironmentFile=%h/.config/checkmate/checkmate.env

@@ -76,7 +76,7 @@ function start(target, { trial = false } = {}) {
   // Versions from before the launcher never say "ready": their port answering is the sign.
   const probe = setInterval(() => {
     if (ready || !child) return clearInterval(probe);
-    const socket = net.connect({ port: Number(process.env.PORT) || 3000, host: '127.0.0.1' });
+    const socket = net.connect({ port: Number(process.env.PORT) || 3333, host: '127.0.0.1' });
     socket.once('connect', () => {
       socket.destroy();
       // Give a server that does say "ready" the chance to (it finishes starting first).

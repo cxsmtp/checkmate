@@ -27,7 +27,7 @@ Invitations can be sent at any step; the results link is private to the team.
 
 ```bash
 # Podman (one command; self-updating when AUTO_UPDATE=on)
-podman run -d --name checkmate -p 3333:3000 -v checkmate-data:/data \
+podman run -d --name checkmate -p 3333:3333 -v checkmate-data:/data \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
   --env-file checkmate.env ghcr.io/cxsmtp/checkmate:latest
 podman logs checkmate            # the first start prints the admin password
@@ -117,7 +117,7 @@ Without SMTP, every email (invitations, *results are ready*, the developer brief
 
 ```bash
 npm install
-npm start          # http://localhost:3000; demo without CX_API_KEY (5 fictional profiles seeded), real scans with it
+npm start          # http://localhost:3333; demo without CX_API_KEY (5 fictional profiles seeded), real scans with it
 npm test           # 42 tests, including the whole live flow against a Checkmarx One stand-in (test/helpers/mock-cxone.mjs)
 ```
 

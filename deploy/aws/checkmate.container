@@ -11,7 +11,7 @@ After=network-online.target
 [Container]
 ContainerName=checkmate
 Image=ghcr.io/cxsmtp/checkmate:latest
-PublishPort=3333:3000
+PublishPort=3333:3333
 Volume=checkmate-data:/data
 EnvironmentFile=/etc/checkmate/checkmate.env
 Environment=AUTO_UPDATE=on
