@@ -12,6 +12,10 @@ export function parseGithubUrl(v) {
 
 export const CITY_THEMES = ['dubai', 'new-york', 'boston', 'singapore', 'melbourne'];
 
+/** "shabir.bhat@acme.com" → "Shabir Bhat". */
+export const nameFromEmail = (email) =>
+  String(email ?? '').split('@')[0].split(/[._+-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ').slice(0, 120);
+
 const clean = (v, max = 120) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** Validates the registration form. Returns { value } or { errors }. */
@@ -23,7 +27,9 @@ export function validateRegistration(body = {}, { getSample = () => null } = {})
   const contacts = Array.isArray(body.contacts) ? body.contacts : [];
   const pocs = contacts
     .map((c) => ({ name: clean(c?.name), email: clean(c?.email, 254).toLowerCase(), role: clean(c?.role) || 'Operations' }))
-    .filter((c) => c.name || c.email);
+    .filter((c) => c.name || c.email)
+    // An email is enough: the name is read from it (shabir.bhat@… → Shabir Bhat).
+    .map((c) => ({ ...c, name: c.name || nameFromEmail(c.email) }));
   // A visitor without a repository of their own picks one of the samples instead.
   const sampleId = clean(body.sampleId, 36);
   const sample = sampleId ? getSample(sampleId) : null;
@@ -35,10 +41,9 @@ export function validateRegistration(body = {}, { getSample = () => null } = {})
   if (!technical.name) errors.technicalName = 'Please enter the technical contact name.';
   if (!isEmail(technical.email)) errors.technicalEmail = 'Please enter a valid technical contact email.';
   if (pocs.length < 2) errors.contacts = 'Please add at least two operations points of contact.';
-  pocs.forEach((c, i) => {
-    if (!c.name) errors[`contacts.${i}.name`] = 'Name is required.';
-    if (!isEmail(c.email)) errors[`contacts.${i}.email`] = 'Valid email is required.';
-  });
+  // Contact problems are reported on the team as a whole, naming the address, so the page can show them.
+  const badContact = pocs.find((c) => !isEmail(c.email));
+  if (badContact && !errors.contacts) errors.contacts = `${badContact.email || badContact.name} is not a valid email address — remove it and add it again.`;
   if (pocs.length > 10) errors.contacts = 'Up to 10 contacts can be added here; invite more later.';
   if (sampleId && !sample?.enabled) errors.sampleId = 'That sample repository is no longer available. Please pick another.';
   else if (!repo) errors.githubUrl = 'Please enter a GitHub repository URL like https://github.com/org/repo, or pick a sample repository.';

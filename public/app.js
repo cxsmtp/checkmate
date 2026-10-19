@@ -363,7 +363,7 @@ async function renderDetails() {
   const addPerson = () => {
     const email = addEmail.value.trim().toLowerCase();
     if (!email) return;
-    if (!team.some((t) => t.email === email)) team.push({ name: addName.value.trim(), email, role: 'Operations' });
+    if (!team.some((t) => t.email === email)) team.push({ name: addName.value.trim() || email.split('@')[0].split(/[._+-]+/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' '), email, role: 'Operations' });
     addName.value = ''; addEmail.value = ''; renderTeam(); addName.focus();
   };
   addEmail.addEventListener('keydown', (e) => e.key === 'Enter' && (e.preventDefault(), addPerson()));
@@ -448,12 +448,13 @@ async function renderDetails() {
           const slot = form.querySelector(`[data-error="${name}"]`);
           if (slot) { slot.textContent = msg; continue; }
           const input = form.elements[name];
-          if (!input) continue;
+          if (!input) { errBox.dataset.extra = `${errBox.dataset.extra ?? ''} ${msg}`; continue; }
           if (input.closest('[hidden]')) input.closest('[hidden]').hidden = false;
           input.classList.add('invalid'); input.after(h('span', { class: 'field-error' }, msg)); first ??= input;
         }
         if (first) first.focus();
-        errBox.textContent = 'Please check the highlighted fields.';
+        errBox.textContent = first ? 'Please check the highlighted fields.' : (errBox.dataset.extra || 'Please check the details above.').trim();
+        delete errBox.dataset.extra;
       } else errBox.textContent = err.message;
     }
   });

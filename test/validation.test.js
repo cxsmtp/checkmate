@@ -26,7 +26,7 @@ test('requires two operations contacts, consent and a GitHub URL', () => {
 test('rejects bad emails', () => {
   const { errors } = validateRegistration({ ...valid, technicalEmail: 'nope', contacts: [valid.contacts[0], { name: 'X', email: 'bad@' }] });
   assert.ok(errors.technicalEmail);
-  assert.ok(errors['contacts.1.email']);
+  assert.match(errors.contacts, /bad@ is not a valid email/);
 });
 
 test('parses GitHub URLs strictly', () => {
@@ -51,4 +51,10 @@ test('places: keys for any city, and only the city is kept with a registration',
   assert.equal(featuredKey('Dubai', 'US'), null);
   assert.ok(isPlaceKey('kuala-lumpur-my'));
   assert.ok(!isPlaceKey('../etc'));
+});
+
+test('a colleague\'s email alone is enough: the name is read from it', () => {
+  const { value, errors } = validateRegistration({ ...valid, contacts: [{ email: 'shabir.bhat@checkmarx.com' }, { name: '', email: 'gadi.sinai@checkmarx.com' }] });
+  assert.equal(errors, undefined);
+  assert.deepEqual(value.pocs.map((p) => p.name), ['Shabir Bhat', 'Gadi Sinai']);
 });
